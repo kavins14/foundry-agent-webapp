@@ -7,9 +7,9 @@ import { useAuth } from '../hooks/useAuth';
 import { ChatService } from '../services/chatService';
 import { useAppContext } from '../contexts/AppContext';
 import type { IChatItem } from '../types/chat';
-import styles from './AgentPreview.module.css';
+import styles from './AgentChat.module.css';
 
-interface AgentPreviewProps {
+interface AgentChatProps {
   agentId: string;
   agentName: string;
   agentDescription?: string;
@@ -17,7 +17,7 @@ interface AgentPreviewProps {
   starterPrompts?: string[];
 }
 
-export const AgentPreview: React.FC<AgentPreviewProps> = ({ agentName, agentDescription, agentLogo, starterPrompts }) => {
+export const AgentChat: React.FC<AgentChatProps> = ({ agentName, agentDescription, agentLogo, starterPrompts }) => {
   const { chat, state } = useAppState();
   const { dispatch } = useAppContext();
   const { getAccessToken } = useAuth();
@@ -45,6 +45,10 @@ export const AgentPreview: React.FC<AgentPreviewProps> = ({ agentName, agentDesc
 
   const handleCancelStream = () => {
     chatService.cancelStream();
+  };
+
+  const handleRecoveredInputConsumed = () => {
+    dispatch({ type: 'CHAT_CONSUMED_RECOVERED_INPUT' });
   };
 
   const handleMcpApproval = async (
@@ -141,8 +145,10 @@ export const AgentPreview: React.FC<AgentPreviewProps> = ({ agentName, agentDesc
           status={chat.status}
           error={chat.error}
           streamingMessageId={chat.streamingMessageId}
+          recoveredInput={chat.recoveredInput}
           onSendMessage={handleSendMessage}
           onClearError={handleClearError}
+          onRecoveredInputConsumed={handleRecoveredInputConsumed}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onNewChat={handleNewChat}
           onCancelStream={handleCancelStream}

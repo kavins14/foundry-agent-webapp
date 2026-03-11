@@ -1,7 +1,7 @@
 import { Suspense, memo, useMemo, useCallback } from 'react';
-import { Spinner, Tooltip } from '@fluentui/react-components';
+import { Spinner, Tooltip, Text } from '@fluentui/react-components';
 import { CopilotMessage } from '@fluentui-copilot/react-copilot-chat';
-import { DocumentRegular, GlobeRegular, FolderRegular, OpenRegular } from '@fluentui/react-icons';
+import { DocumentRegular, GlobeRegular, FolderRegular, OpenRegular, ArrowSyncRegular } from '@fluentui/react-icons';
 import { Markdown } from '../core/Markdown';
 import { AgentIcon } from '../core/AgentIcon';
 import { UsageInfo } from './UsageInfo';
@@ -27,7 +27,8 @@ function AssistantMessageComponent({
   const timestamp = message.more?.time ? formatTimestamp(new Date(message.more.time)) : '';
   
   // Show custom loading indicator when streaming with no content
-  const showLoadingDots = isStreaming && !message.content;
+  const showLoadingDots = isStreaming && !message.content && !message.retryAttempt;
+  const isRetrying = isStreaming && !!message.retryAttempt;
   const hasAnnotations = message.annotations && message.annotations.length > 0;
   
   // Parse content with citations for consistent numbering between inline and footnotes
@@ -175,6 +176,13 @@ function AssistantMessageComponent({
           <span></span>
           <span></span>
         </div>
+      ) : isRetrying ? (
+        <div className={styles.retryingState}>
+          <ArrowSyncRegular className={styles.retryingIcon} />
+          <Text size={200}>
+            Retrying ({message.retryAttempt}/{message.maxRetries})...
+          </Text>
+        </div>
       ) : (
         <Suspense fallback={<Spinner size="small" />}>
           <Markdown 
@@ -189,13 +197,13 @@ function AssistantMessageComponent({
 }
 
 export const AssistantMessage = memo(AssistantMessageComponent, (prev, next) => {
-  // Re-render only if streaming state or content/usage/annotations changes
   return (
     prev.message.id === next.message.id &&
     prev.message.content === next.message.content &&
     prev.isStreaming === next.isStreaming &&
     prev.agentLogo === next.agentLogo &&
     prev.message.more?.usage === next.message.more?.usage &&
-    prev.message.annotations?.length === next.message.annotations?.length
+    prev.message.annotations?.length === next.message.annotations?.length &&
+    prev.message.retryAttempt === next.message.retryAttempt
   );
 });

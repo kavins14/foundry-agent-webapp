@@ -222,10 +222,12 @@ stateDiagram-v2
 
     streaming --> streaming: CHAT_STREAM_CHUNK
     streaming --> streaming: CHAT_STREAM_ANNOTATIONS
+    streaming --> streaming: CHAT_STREAM_RETRY
     streaming --> idle: CHAT_STREAM_COMPLETE
     streaming --> idle: CHAT_CANCEL_STREAM
     streaming --> idle: CHAT_MCP_APPROVAL_REQUEST
     streaming --> error: CHAT_ERROR
+    streaming --> error: CHAT_RECOVER_MESSAGE
 
     error --> idle: CHAT_CLEAR_ERROR
 
@@ -239,8 +241,14 @@ stateDiagram-v2
 |-------|-------------|---------------|-------------------|
 | `idle` | Ready for input | ✅ Yes (except during MCP approval) | `undefined` |
 | `sending` | Request in flight | ❌ No | `undefined` |
-| `streaming` | Receiving chunks | ❌ No | Message ID |
+| `streaming` | Receiving chunks (or retrying) | ❌ No | Message ID |
 | `error` | Failure occurred | If recoverable | `undefined` |
+
+### Stream Retry & Message Recovery
+
+When a stream fails, the system automatically retries up to 3 times with exponential backoff. During retries, the assistant message shows a "Retrying (2/3)..." indicator via the `CHAT_STREAM_RETRY` action.
+
+If all retries are exhausted, `CHAT_RECOVER_MESSAGE` removes the failed user message and assistant placeholder from the chat, restores the original message text to the input via `recoveredInput`, and shows an error banner. The user can simply press Send again.
 
 ---
 
@@ -412,8 +420,11 @@ flowchart LR
 | `CHAT_MCP_APPROVAL_RESOLVED` | idle | idle | Mark approval as approved/rejected |
 | `CHAT_STREAM_COMPLETE` | streaming | idle | Add usage, enable input |
 | `CHAT_CANCEL_STREAM` | streaming | idle | Enable input |
+| `CHAT_STREAM_RETRY` | streaming | streaming | Reset assistant msg content, show retry indicator |
+| `CHAT_RECOVER_MESSAGE` | streaming | error | Remove failed msgs, restore input text, show error |
+| `CHAT_CONSUMED_RECOVERED_INPUT` | any | (unchanged) | Clear recoveredInput after input pre-fill |
 | `CHAT_ERROR` | any | error | Set error, conditional input |
-| `CHAT_CLEAR_ERROR` | error | idle | Clear error, enable input |
+| `CHAT_CLEAR_ERROR` | error | idle | Clear error + recoveredInput, enable input |
 | `CHAT_CLEAR` | any | idle | Reset all chat state |
 | `CONVERSATIONS_LOADING` | any | (loading) | Set conversations loading state |
 | `CONVERSATIONS_SET_LIST` | any | (list updated) | Populate conversation list |

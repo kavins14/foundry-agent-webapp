@@ -74,6 +74,9 @@ export function ErrorMessage({
     <MessageBar
       intent="error"
       className={styles.container}
+      role="alert"
+      aria-live="assertive"
+      aria-atomic="true"
     >
       <MessageBarBody>
         <Text className={styles.messageText}>{displayMessage}</Text>

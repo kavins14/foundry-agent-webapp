@@ -45,6 +45,8 @@ interface ChatInputProps {
   hasMessages?: boolean;
   isStreaming?: boolean;
   onCancelStream?: () => void;
+  recoveredInput?: string;
+  onRecoveredInputConsumed?: () => void;
 }
 
 const focusInput = (containerRef: React.RefObject<HTMLDivElement | null>) => {
@@ -64,6 +66,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   hasMessages = false,
   isStreaming = false,
   onCancelStream,
+  recoveredInput,
+  onRecoveredInputConsumed,
 }) => {
   const [inputText, setInputText] = useState<string>("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -112,6 +116,16 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       return () => clearTimeout(timer);
     }
   }, [hasMessages, disabled]);
+
+  useEffect(() => {
+    if (recoveredInput) {
+      setInputText(recoveredInput);
+      controlRef.current?.setInputText(recoveredInput);
+      onRecoveredInputConsumed?.();
+      const timer = setTimeout(() => focusInput(inputContainerRef), 50);
+      return () => clearTimeout(timer);
+    }
+  }, [recoveredInput, onRecoveredInputConsumed]);
 
   const handleSubmit = () => {
     if (inputText && inputText.trim() !== "") {

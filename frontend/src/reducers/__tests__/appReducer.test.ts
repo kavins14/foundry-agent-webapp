@@ -18,6 +18,7 @@ function createInitialState(): AppState {
       currentConversationId: null,
       error: null,
       streamingMessageId: undefined,
+      recoveredInput: undefined,
     },
     ui: {
       chatInputEnabled: true,
@@ -705,6 +706,254 @@ describe('appReducer', () => {
 
       expect(result.chat.error).toBeNull();
     });
+
+    it('clears recoveredInput', () => {
+      const state = createInitialState();
+      state.chat.recoveredInput = 'leftover text';
+
+      const result = appReducer(state, { type: 'CHAT_CLEAR' });
+
+      expect(result.chat.recoveredInput).toBeUndefined();
+    });
+  });
+
+  describe('CHAT_STREAM_RETRY', () => {
+    it('resets assistant message content and sets retry metadata', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'user-1', role: 'user', content: 'Hello' }),
+        createMockMessage({ id: 'assistant-1', role: 'assistant', content: 'partial response' }),
+      ];
+      state.chat.streamingMessageId = 'assistant-1';
+
+      const result = appReducer(state, {
+        type: 'CHAT_STREAM_RETRY',
+        messageId: 'assistant-1',
+        attempt: 2,
+        maxRetries: 3,
+      });
+
+      const assistantMsg = result.chat.messages.find(m => m.id === 'assistant-1');
+      expect(assistantMsg?.content).toBe('');
+      expect(assistantMsg?.retryAttempt).toBe(2);
+      expect(assistantMsg?.maxRetries).toBe(3);
+    });
+
+    it('sets status to streaming and disables input', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'assistant-1', role: 'assistant', content: '' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_STREAM_RETRY',
+        messageId: 'assistant-1',
+        attempt: 2,
+        maxRetries: 3,
+      });
+
+      expect(result.chat.status).toBe('streaming');
+      expect(result.ui.chatInputEnabled).toBe(false);
+      expect(result.chat.error).toBeNull();
+    });
+
+    it('returns unchanged state if message not found', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'assistant-1', role: 'assistant', content: 'hello' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_STREAM_RETRY',
+        messageId: 'nonexistent',
+        attempt: 2,
+        maxRetries: 3,
+      });
+
+      expect(result).toBe(state);
+    });
+
+    it('clears annotations from previous failed attempt', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'partial',
+          annotations: [{ type: 'file_citation', label: 'doc.md' }],
+        }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_STREAM_RETRY',
+        messageId: 'assistant-1',
+        attempt: 2,
+        maxRetries: 3,
+      });
+
+      expect(result.chat.messages[0].annotations).toBeUndefined();
+    });
+  });
+
+  describe('CHAT_RECOVER_MESSAGE', () => {
+    it('removes the last two messages and restores input text', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'old-1', role: 'user', content: 'old message' }),
+        createMockMessage({ id: 'old-2', role: 'assistant', content: 'old response' }),
+        createMockMessage({ id: 'user-1', role: 'user', content: 'failed message' }),
+        createMockMessage({ id: 'assistant-1', role: 'assistant', content: '' }),
+      ];
+      state.chat.streamingMessageId = 'assistant-1';
+
+      const result = appReducer(state, {
+        type: 'CHAT_RECOVER_MESSAGE',
+        messageText: 'failed message',
+        error: { code: 'NETWORK', message: 'Connection failed', recoverable: true },
+        retryCount: 3,
+      });
+
+      expect(result.chat.messages).toHaveLength(2);
+      expect(result.chat.messages[0].id).toBe('old-1');
+      expect(result.chat.messages[1].id).toBe('old-2');
+      expect(result.chat.recoveredInput).toBe('failed message');
+    });
+
+    it('sets error with retry count message and enables input', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'user-1', role: 'user' }),
+        createMockMessage({ id: 'assistant-1', role: 'assistant' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_RECOVER_MESSAGE',
+        messageText: 'test',
+        error: { code: 'NETWORK', message: 'Connection failed', recoverable: true },
+        retryCount: 3,
+      });
+
+      expect(result.chat.status).toBe('error');
+      expect(result.chat.error?.message).toContain('3 attempts');
+      expect(result.chat.error?.recoverable).toBe(true);
+      expect(result.ui.chatInputEnabled).toBe(true);
+      expect(result.chat.streamingMessageId).toBeUndefined();
+    });
+
+    it('uses singular "attempt" for retryCount of 1', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'user-1', role: 'user' }),
+        createMockMessage({ id: 'assistant-1', role: 'assistant' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_RECOVER_MESSAGE',
+        messageText: 'test',
+        error: { code: 'AUTH', message: 'Unauthorized', recoverable: false },
+        retryCount: 1,
+      });
+
+      expect(result.chat.error?.message).toContain('1 attempt');
+      expect(result.chat.error?.message).not.toContain('1 attempts');
+    });
+
+    it('handles empty message array gracefully', () => {
+      const state = createInitialState();
+      state.chat.messages = [];
+
+      const result = appReducer(state, {
+        type: 'CHAT_RECOVER_MESSAGE',
+        messageText: 'orphaned text',
+        error: { code: 'NETWORK', message: 'Failed', recoverable: true },
+        retryCount: 3,
+      });
+
+      expect(result.chat.messages).toHaveLength(0);
+      expect(result.chat.recoveredInput).toBe('orphaned text');
+      expect(result.chat.status).toBe('error');
+    });
+
+    it('handles single message array gracefully', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'lonely', role: 'user' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_RECOVER_MESSAGE',
+        messageText: 'test',
+        error: { code: 'STREAM', message: 'Broke', recoverable: true },
+        retryCount: 2,
+      });
+
+      expect(result.chat.messages).toHaveLength(0);
+      expect(result.chat.recoveredInput).toBe('test');
+    });
+  });
+
+  describe('CHAT_CONSUMED_RECOVERED_INPUT', () => {
+    it('clears recoveredInput', () => {
+      const state = createInitialState();
+      state.chat.recoveredInput = 'restored text';
+
+      const result = appReducer(state, { type: 'CHAT_CONSUMED_RECOVERED_INPUT' });
+
+      expect(result.chat.recoveredInput).toBeUndefined();
+    });
+
+    it('does not change other chat state', () => {
+      const state = createInitialState();
+      state.chat.recoveredInput = 'restored text';
+      state.chat.status = 'error';
+      state.chat.error = { code: 'NETWORK', message: 'Failed', recoverable: true };
+
+      const result = appReducer(state, { type: 'CHAT_CONSUMED_RECOVERED_INPUT' });
+
+      expect(result.chat.status).toBe('error');
+      expect(result.chat.error).not.toBeNull();
+    });
+  });
+
+  describe('CHAT_CLEAR_ERROR', () => {
+    it('clears recoveredInput along with error', () => {
+      const state = createInitialState();
+      state.chat.error = { code: 'NETWORK', message: 'Error', recoverable: true };
+      state.chat.recoveredInput = 'leftover text';
+      state.chat.status = 'error';
+
+      const result = appReducer(state, { type: 'CHAT_CLEAR_ERROR' });
+
+      expect(result.chat.recoveredInput).toBeUndefined();
+      expect(result.chat.error).toBeNull();
+      expect(result.chat.status).toBe('idle');
+    });
+  });
+
+  describe('CHAT_STREAM_COMPLETE', () => {
+    it('clears retry metadata on successful completion', () => {
+      const state = createInitialState();
+      state.chat.streamingMessageId = 'assistant-1';
+      state.chat.messages = [
+        createMockMessage({
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'response',
+          retryAttempt: 2,
+          maxRetries: 3,
+        }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_STREAM_COMPLETE',
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150, duration: 1234 },
+      });
+
+      const msg = result.chat.messages[0];
+      expect(msg.retryAttempt).toBeUndefined();
+      expect(msg.maxRetries).toBeUndefined();
+      expect(msg.more?.usage?.totalTokens).toBe(150);
+    });
   });
 
   describe('immutability', () => {
@@ -851,12 +1100,41 @@ describe('appReducer', () => {
   });
 
   describe('state shape', () => {
-    it('should have expected state shape (update this test when adding new state fields)', () => {
-      const shape = JSON.stringify(Object.keys(initialAppState).sort());
-      expect(shape).toBe('["auth","chat","conversations","ui"]');
-      // Drill into conversations shape
-      const convShape = JSON.stringify(Object.keys(initialAppState.conversations).sort());
-      expect(convShape).toBe('["hasMore","isLoading","list","sidebarOpen"]');
+    it('snapshot drifts when state fields are added or removed', () => {
+      const getShape = (obj: Record<string, unknown>, prefix = ''): string[] => {
+        return Object.keys(obj).sort().flatMap(key => {
+          const path = prefix ? `${prefix}.${key}` : key;
+          const value = obj[key];
+          if (value && typeof value === 'object' && !Array.isArray(value)) {
+            return [path, ...getShape(value as Record<string, unknown>, path)];
+          }
+          return [path];
+        });
+      };
+
+      const shape = getShape(initialAppState as unknown as Record<string, unknown>);
+      expect(shape).toMatchInlineSnapshot(`
+        [
+          "auth",
+          "auth.error",
+          "auth.status",
+          "auth.user",
+          "chat",
+          "chat.currentConversationId",
+          "chat.error",
+          "chat.messages",
+          "chat.recoveredInput",
+          "chat.status",
+          "chat.streamingMessageId",
+          "conversations",
+          "conversations.hasMore",
+          "conversations.isLoading",
+          "conversations.list",
+          "conversations.sidebarOpen",
+          "ui",
+          "ui.chatInputEnabled",
+        ]
+      `);
     });
   });
 });

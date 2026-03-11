@@ -203,7 +203,7 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
     }
 
     case 'CHAT_STREAM_COMPLETE': {
-      // Update the completed message with usage info
+      // Update the completed message with usage info and clean up retry state
       const updatedMessages = state.chat.messages.map(msg =>
         msg.id === state.chat.streamingMessageId
           ? {
@@ -213,6 +213,8 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
                 usage: action.usage,
               },
               duration: action.usage.duration,
+              retryAttempt: undefined,
+              maxRetries: undefined,
             }
           : msg
       );
@@ -269,6 +271,7 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
           ...state.chat,
           error: null,
           status: 'idle',
+          recoveredInput: undefined,
         },
         ui: {
           ...state.ui,
@@ -285,10 +288,74 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
           currentConversationId: null,
           error: null,
           streamingMessageId: undefined,
+          recoveredInput: undefined,
         },
         ui: {
           ...state.ui,
           chatInputEnabled: true,
+        },
+      };
+
+    // === Stream Retry & Recovery ===
+    case 'CHAT_STREAM_RETRY': {
+      const retryIndex = state.chat.messages.findIndex(msg => msg.id === action.messageId);
+      if (retryIndex === -1) return state;
+
+      const updatedMessages = [...state.chat.messages];
+      updatedMessages[retryIndex] = {
+        ...updatedMessages[retryIndex],
+        content: '',
+        annotations: undefined,
+        retryAttempt: action.attempt,
+        maxRetries: action.maxRetries,
+      };
+      return {
+        ...state,
+        chat: {
+          ...state.chat,
+          status: 'streaming',
+          messages: updatedMessages,
+          streamingMessageId: action.messageId,
+          error: null,
+        },
+        ui: {
+          ...state.ui,
+          chatInputEnabled: false,
+        },
+      };
+    }
+
+    case 'CHAT_RECOVER_MESSAGE': {
+      const recoveredMessages = state.chat.messages.length >= 2
+        ? state.chat.messages.slice(0, -2)
+        : [];
+      return {
+        ...state,
+        chat: {
+          ...state.chat,
+          status: 'error',
+          messages: recoveredMessages,
+          streamingMessageId: undefined,
+          recoveredInput: action.messageText,
+          error: {
+            ...action.error,
+            message: `Failed to get a response after ${action.retryCount} ${action.retryCount === 1 ? 'attempt' : 'attempts'}. Your message has been restored.`,
+            recoverable: true,
+          },
+        },
+        ui: {
+          ...state.ui,
+          chatInputEnabled: true,
+        },
+      };
+    }
+
+    case 'CHAT_CONSUMED_RECOVERED_INPUT':
+      return {
+        ...state,
+        chat: {
+          ...state.chat,
+          recoveredInput: undefined,
         },
       };
 

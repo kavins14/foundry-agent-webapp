@@ -17,9 +17,11 @@ interface ChatInterfaceProps {
   status: AppState['chat']['status'];
   error: AppError | null;
   streamingMessageId?: string;
+  recoveredInput?: string;
   onSendMessage: (text: string, files?: File[]) => void;
   onMcpApproval?: (approvalRequestId: string, approved: boolean, previousResponseId: string, conversationId: string) => void;
   onClearError?: () => void;
+  onRecoveredInputConsumed?: () => void;
   onOpenSettings?: () => void;
   onNewChat?: () => void;
   onCancelStream?: () => void;
@@ -34,7 +36,7 @@ interface ChatInterfaceProps {
 }
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = (props) => {
-  const { messages, status, error, streamingMessageId, onSendMessage, onMcpApproval, onClearError, onOpenSettings, onNewChat, onCancelStream, onToggleSidebar, hasMessages, disabled, agentName, agentDescription, agentLogo, starterPrompts, conversationId } = props;
+  const { messages, status, error, streamingMessageId, recoveredInput, onSendMessage, onMcpApproval, onClearError, onRecoveredInputConsumed, onOpenSettings, onNewChat, onCancelStream, onToggleSidebar, hasMessages, disabled, agentName, agentDescription, agentLogo, starterPrompts, conversationId } = props;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [liveRegionMessage, setLiveRegionMessage] = useState<string>('');
   
@@ -50,17 +52,20 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = (props) => {
     scrollToBottom();
   }, [messages]);
 
-  // Announce streaming status changes to screen readers
   useEffect(() => {
     if (isStreaming) {
-      setLiveRegionMessage('Assistant is responding');
+      const streamingMessage = messages.find(m => m.id === streamingMessageId);
+      if (streamingMessage?.retryAttempt) {
+        setLiveRegionMessage(`Retrying, attempt ${streamingMessage.retryAttempt} of ${streamingMessage.maxRetries}`);
+      } else {
+        setLiveRegionMessage('Assistant is responding');
+      }
     } else if (status === 'idle' && messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
       setLiveRegionMessage('Response complete');
-      // Clear the message after announcement
       const timer = setTimeout(() => setLiveRegionMessage(''), 1000);
       return () => clearTimeout(timer);
     }
-  }, [isStreaming, status, messages]);
+  }, [isStreaming, status, messages, streamingMessageId]);
 
   const handleSendMessage = (messageText: string, files?: File[]) => {
     if (!messageText.trim() || disabled) return;
@@ -178,6 +183,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = (props) => {
           placeholder="Type your message here..."
           isStreaming={isStreaming}
           onCancelStream={isStreaming && onCancelStream ? onCancelStream : undefined}
+          recoveredInput={recoveredInput}
+          onRecoveredInputConsumed={onRecoveredInputConsumed}
         />
         <BuiltWithBadge className={styles.builtWithBadge} />
       </div>

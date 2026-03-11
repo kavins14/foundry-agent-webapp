@@ -6,6 +6,8 @@ export interface IChatItem {
   attachments?: IFileAttachment[]; // File attachments
   annotations?: IAnnotation[]; // Citations/references from AI agent
   mcpApproval?: IMcpApprovalRequest; // MCP tool approval request
+  retryAttempt?: number; // Current retry attempt (set during retries)
+  maxRetries?: number; // Max retry attempts (set during retries)
   more?: {
     time?: string; // ISO timestamp
     usage?: IUsageInfo; // Usage info from backend

@@ -51,6 +51,25 @@
   }
 }
 
+/* Retrying indicator */
+.retryingState {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  color: var(--colorNeutralForeground3);
+}
+
+.retryingIcon {
+  animation: spin 1.5s linear infinite;
+  font-size: 16px;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Timestamp styling */
 .timestamp {
   font-size: 12px;

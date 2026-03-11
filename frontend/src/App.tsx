@@ -3,7 +3,7 @@ import { Spinner } from '@fluentui/react-components';
 import { useAppState } from './hooks/useAppState';
 import { InteractionType } from "@azure/msal-browser";
 import { ErrorBoundary } from "./components/core/ErrorBoundary";
-import { AgentPreview } from "./components/AgentPreview";
+import { AgentChat } from "./components/AgentChat";
 import { loginRequest } from "./config/authConfig";
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "./hooks/useAuth";
@@ -85,7 +85,7 @@ function App() {
           <AuthenticatedTemplate>
             {agentMetadata && (
               <div className="app-container">
-                <AgentPreview 
+                <AgentChat 
                   agentId={agentMetadata.id}
                   agentName={agentMetadata.name}
                   agentDescription={agentMetadata.description || undefined}
