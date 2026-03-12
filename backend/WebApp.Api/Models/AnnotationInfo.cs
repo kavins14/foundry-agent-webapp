@@ -31,6 +31,12 @@ public record AnnotationInfo
     public string? FileId { get; init; }
     
     /// <summary>
+    /// Container ID for container file citations (code interpreter outputs).
+    /// Required together with FileId to download container files.
+    /// </summary>
+    public string? ContainerId { get; init; }
+    
+    /// <summary>
     /// The placeholder text in the response to replace (e.g., "【4:0†source】").
     /// </summary>
     public string? TextToReplace { get; init; }

@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useRef, useMemo, useEffect } from 'react';
 import {
   Drawer,
   DrawerHeader,
@@ -7,6 +7,7 @@ import {
   Button,
   Spinner,
   Text,
+  Input,
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
@@ -14,6 +15,8 @@ import {
   Dismiss24Regular,
   ChatAdd24Regular,
   Delete24Regular,
+  Search24Regular,
+  DismissCircle24Regular,
 } from '@fluentui/react-icons';
 import type { ConversationSummary } from '../types/appState';
 
@@ -80,7 +83,10 @@ const useStyles = makeStyles({
   deleteButton: {
     flexShrink: 0,
     opacity: 0,
-    '.conversation-item:hover &': {
+    '.conversation-item:hover &, .conversation-item:focus-within &': {
+      opacity: 1,
+    },
+    ':focus': {
       opacity: 1,
     },
   },
@@ -101,6 +107,18 @@ const useStyles = makeStyles({
   loadMoreButton: {
     width: '100%',
     marginTop: tokens.spacingVerticalS,
+  },
+  searchBox: {
+    marginBottom: tokens.spacingVerticalS,
+  },
+  noResults: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: tokens.spacingVerticalL,
+    color: tokens.colorNeutralForeground3,
+    textAlign: 'center',
   },
 });
 
@@ -129,6 +147,35 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   onLoadMore,
 }) => {
   const styles = useStyles();
+  const [searchQuery, setSearchQuery] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  const handleSearchChange = useCallback((_: React.ChangeEvent<HTMLInputElement>, data: { value: string }) => {
+    setSearchQuery(data.value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedQuery(data.value);
+    }, 300);
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('');
+    setDebouncedQuery('');
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
+
+  const filteredConversations = useMemo(() => {
+    if (!debouncedQuery.trim()) return conversations;
+    const query = debouncedQuery.toLowerCase();
+    return conversations.filter(c => c.title?.toLowerCase().includes(query));
+  }, [conversations, debouncedQuery]);
 
   const handleDelete = useCallback(
     (e: React.MouseEvent, conversationId: string) => {
@@ -173,6 +220,28 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
           New Chat
         </Button>
 
+        {conversations.length > 0 && (
+          <Input
+            className={styles.searchBox}
+            placeholder="Search conversations..."
+            value={searchQuery}
+            onChange={handleSearchChange}
+            contentBefore={<Search24Regular />}
+            contentAfter={
+              searchQuery ? (
+                <Button
+                  appearance="transparent"
+                  icon={<DismissCircle24Regular />}
+                  size="small"
+                  aria-label="Clear search"
+                  onClick={handleClearSearch}
+                />
+              ) : undefined
+            }
+            aria-label="Search conversations"
+          />
+        )}
+
         {isLoading && conversations.length === 0 ? (
           <div className={styles.spinnerContainer}>
             <Spinner size="small" label="Loading conversations..." />
@@ -182,10 +251,15 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
             <Text>No conversations yet</Text>
             <Text size={200}>Start a new chat to begin</Text>
           </div>
+        ) : filteredConversations.length === 0 ? (
+          <div className={styles.noResults}>
+            <Text>No conversations match</Text>
+            <Text size={200}>Try a different search term</Text>
+          </div>
         ) : (
           <>
             <div className={styles.conversationList} role="list">
-              {conversations.map((conversation) => (
+              {filteredConversations.map((conversation) => (
                 <div
                   key={conversation.id}
                   className={`conversation-item ${styles.conversationItem} ${

@@ -29,3 +29,14 @@ export function trackException(error: Error, properties?: Record<string, string>
 export function trackEvent(name: string, properties?: Record<string, string>): void {
   appInsights?.trackEvent({ name }, properties);
 }
+
+export function trackFeedback(messageId: string, conversationId: string | null, rating: 'positive' | 'negative'): void {
+  appInsights?.trackEvent({
+    name: 'message_feedback',
+    properties: {
+      messageId,
+      conversationId: conversationId ?? '',
+      rating,
+    },
+  });
+}

@@ -44,6 +44,7 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
           ...state.chat,
           status: 'sending',
           messages: [...state.chat.messages, action.message],
+          editSnapshot: undefined,
         },
       };
 
@@ -67,6 +68,8 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
           streamingMessageId: undefined,
           error: null,
           pendingMessages: [],
+          editSnapshot: undefined,
+          recoveredAttachments: undefined,
         },
         ui: {
           ...state.ui,
@@ -163,6 +166,31 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
       };
     }
 
+    case 'CHAT_STREAM_TOOL_USE': {
+      // Set activeToolUse on the streaming message for progress indicator
+      const messageIndex = state.chat.messages.findIndex(
+        msg => msg.id === action.messageId
+      );
+
+      if (messageIndex === -1) {
+        return state;
+      }
+
+      const updatedMessages = [...state.chat.messages];
+      updatedMessages[messageIndex] = {
+        ...updatedMessages[messageIndex],
+        activeToolUse: action.toolName,
+      };
+
+      return {
+        ...state,
+        chat: {
+          ...state.chat,
+          messages: updatedMessages,
+        },
+      };
+    }
+
     case 'CHAT_MCP_APPROVAL_REQUEST': {
       // Add approval request as a special message
       const approvalMessage = {
@@ -204,7 +232,7 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
     }
 
     case 'CHAT_STREAM_COMPLETE': {
-      // Update the completed message with usage info and clean up retry state
+      // Update the completed message with usage info and clean up retry/tool state
       const updatedMessages = state.chat.messages.map(msg =>
         msg.id === state.chat.streamingMessageId
           ? {
@@ -216,6 +244,7 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
               duration: action.usage.duration,
               retryAttempt: undefined,
               maxRetries: undefined,
+              activeToolUse: undefined,
             }
           : msg
       );
@@ -272,7 +301,7 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
           ...state.chat,
           error: null,
           status: 'idle',
-          recoveredInput: undefined,
+          recoveredInput: undefined, recoveredAttachments: undefined,
         },
         ui: {
           ...state.ui,
@@ -289,7 +318,7 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
           currentConversationId: null,
           error: null,
           streamingMessageId: undefined,
-          recoveredInput: undefined,
+          recoveredInput: undefined, recoveredAttachments: undefined,
           pendingMessages: [],
         },
         ui: {
@@ -357,7 +386,7 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
         ...state,
         chat: {
           ...state.chat,
-          recoveredInput: undefined,
+          recoveredInput: undefined, recoveredAttachments: undefined,
         },
       };
 
@@ -367,7 +396,7 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
         ...state,
         chat: {
           ...state.chat,
-          pendingMessages: [...state.chat.pendingMessages, action.text],
+          pendingMessages: [...state.chat.pendingMessages, { text: action.text, files: action.files }],
         },
       };
 
@@ -386,6 +415,83 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
         chat: {
           ...state.chat,
           pendingMessages: [],
+        },
+      };
+
+    // === Regenerate & Edit ===
+    case 'CHAT_REGENERATE': {
+      // Remove the last assistant message AND its preceding user message;
+      // store the user text for auto-resend so AgentChat creates a fresh pair.
+      const msgs = state.chat.messages;
+      const lastAssistantIdx = msgs.length - 1;
+      if (lastAssistantIdx < 0 || msgs[lastAssistantIdx].role !== 'assistant') return state;
+
+      // Find the user message that preceded the assistant message
+      let lastUserIdx = -1;
+      for (let i = lastAssistantIdx - 1; i >= 0; i--) {
+        if (msgs[i].role === 'user') { lastUserIdx = i; break; }
+      }
+
+      const regenerateText = lastUserIdx >= 0 ? msgs[lastUserIdx].content : undefined;
+      const sliceEnd = lastUserIdx >= 0 ? lastUserIdx : lastAssistantIdx;
+
+      return {
+        ...state,
+        chat: {
+          ...state.chat,
+          messages: msgs.slice(0, sliceEnd),
+          status: 'idle',
+          streamingMessageId: undefined,
+          regenerateText,
+        },
+        ui: {
+          ...state.ui,
+          chatInputEnabled: true,
+        },
+      };
+    }
+
+    case 'CHAT_EDIT_MESSAGE': {
+      const targetIdx = state.chat.messages.findIndex(m => m.id === action.messageId);
+      if (targetIdx === -1) return state;
+      const targetMsg = state.chat.messages[targetIdx];
+      return {
+        ...state,
+        chat: {
+          ...state.chat,
+          messages: state.chat.messages.slice(0, targetIdx),
+          status: 'idle',
+          streamingMessageId: undefined,
+          recoveredInput: action.newText,
+          recoveredAttachments: targetMsg.attachments,
+          editSnapshot: state.chat.messages.slice(targetIdx),
+        },
+        ui: {
+          ...state.ui,
+          chatInputEnabled: true,
+        },
+      };
+    }
+
+    case 'CHAT_CANCEL_EDIT': {
+      if (!state.chat.editSnapshot) return state;
+      return {
+        ...state,
+        chat: {
+          ...state.chat,
+          messages: [...state.chat.messages, ...state.chat.editSnapshot],
+          editSnapshot: undefined,
+          recoveredInput: undefined, recoveredAttachments: undefined,
+        },
+      };
+    }
+
+    case 'CHAT_CONSUMED_REGENERATE':
+      return {
+        ...state,
+        chat: {
+          ...state.chat,
+          regenerateText: undefined,
         },
       };
 

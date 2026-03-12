@@ -219,18 +219,18 @@ export const FilePreview: React.FC<FilePreviewProps> = ({ files, onRemove, disab
     const mimeType = getEffectiveMimeType(file);
 
     if (mimeType.startsWith('image/')) {
-      return <ImageRegular fontSize={32} />;
+      return <ImageRegular fontSize={32} aria-hidden="true" />;
     }
     if (mimeType === 'application/pdf') {
-      return <DocumentPdfRegular fontSize={32} />;
+      return <DocumentPdfRegular fontSize={32} aria-hidden="true" />;
     }
     if (mimeType === 'application/json' || mimeType === 'text/xml' || mimeType === 'application/xml' || mimeType === 'text/html') {
-      return <CodeRegular fontSize={32} />;
+      return <CodeRegular fontSize={32} aria-hidden="true" />;
     }
     if (mimeType === 'text/plain' || mimeType === 'text/markdown' || mimeType === 'text/csv') {
-      return <DocumentTextRegular fontSize={32} />;
+      return <DocumentTextRegular fontSize={32} aria-hidden="true" />;
     }
-    return <DocumentRegular fontSize={32} />;
+    return <DocumentRegular fontSize={32} aria-hidden="true" />;
   };
 
   const getFileExtension = (fileName: string): string => {

@@ -22,6 +22,16 @@ public record StreamChunk
     public McpApprovalRequest? McpApprovalRequest { get; init; }
     
     /// <summary>
+    /// Whether this chunk signals a tool-use step (e.g. file_search, code_interpreter).
+    /// </summary>
+    public bool IsToolUse { get; init; }
+    
+    /// <summary>
+    /// Name of the tool being invoked (set when IsToolUse is true).
+    /// </summary>
+    public string? ToolName { get; init; }
+    
+    /// <summary>
     /// Creates a text delta chunk.
     /// </summary>
     public static StreamChunk Text(string delta) => new() { TextDelta = delta };
@@ -35,6 +45,11 @@ public record StreamChunk
     /// Creates an MCP approval request chunk.
     /// </summary>
     public static StreamChunk McpApproval(McpApprovalRequest request) => new() { McpApprovalRequest = request };
+    
+    /// <summary>
+    /// Creates a tool-use indicator chunk.
+    /// </summary>
+    public static StreamChunk ToolUse(string toolName) => new() { IsToolUse = true, ToolName = toolName };
     
     /// <summary>
     /// Whether this chunk contains text content.

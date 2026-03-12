@@ -41,6 +41,7 @@ flowchart TB
     L -->|/api/conversations| R[ListConversations]
     L -->|/api/conversations/*/messages| S[GetConversationMessages]
     L -->|DELETE /api/conversations/*| T[DeleteConversation ⚠️ 501]
+    L -->|/api/files/*| U[DownloadFile]
     L -->|/*| P[Fallback: index.html]
 ```
 
@@ -167,8 +168,9 @@ sequenceDiagram
 |------------|-----------|---------|
 | `conversationId` | First, always | `{conversationId: string}` |
 | `chunk` | Per text delta | `{content: string}` |
-| `annotations` | After item complete | `{annotations: AnnotationInfo[]}` |
+| `annotations` | After item complete | `{annotations: AnnotationInfo[]}` — each annotation may include `containerId` for container file citations |
 | `mcpApprovalRequest` | MCP tool needs approval | `{approvalRequest: {...}}` |
+| `toolUse` | When agent starts using a tool | `{toolName: string}` |
 | `usage` | Before done | `{duration, promptTokens, completionTokens, totalTokens}` |
 | `done` | Last, always | `{}` |
 | `error` | On exception | `{message: string}` |
@@ -223,6 +225,7 @@ stateDiagram-v2
     streaming --> streaming: CHAT_STREAM_CHUNK
     streaming --> streaming: CHAT_STREAM_ANNOTATIONS
     streaming --> streaming: CHAT_STREAM_RETRY
+    streaming --> streaming: CHAT_STREAM_TOOL_USE
     streaming --> idle: CHAT_STREAM_COMPLETE
     streaming --> idle: CHAT_CANCEL_STREAM
     streaming --> idle: CHAT_MCP_APPROVAL_REQUEST
@@ -246,7 +249,31 @@ stateDiagram-v2
 
 ### Message Queue
 
-When the AI is streaming, the input stays enabled. Messages sent during streaming are queued in `pendingMessages[]` and shown as dismissible chips below the input. When the stream completes and status returns to `idle`, queued messages are combined (newline-separated) into a single message and auto-sent.
+When the AI is streaming, the input stays enabled. Messages sent during streaming are queued in `pendingMessages[]` (with optional file attachments) and shown as dismissible chips below the input. When the stream completes and status returns to `idle`, queued messages are combined (newline-separated) into a single message and auto-sent. Files from all queued messages are merged.
+
+### Message Actions
+
+Assistant messages display a hover action bar with Copy, Regenerate, and Feedback (👍👎) buttons. User messages show an Edit button on the last message.
+- **Regenerate**: Removes the last assistant response and auto-resends the user's message
+- **Edit**: Removes the target message and everything after it, then auto-resends with the edited text
+- **Feedback**: Tracks 👍👎 ratings to Application Insights via `trackEvent`
+
+### Tool-Use Visualization
+
+When the AI agent uses tools (file search, code interpreter, function calls), the backend streams `toolUse` SSE events. The UI shows an inline indicator (e.g., "Searching files...") on the assistant message during tool execution.
+
+### Input Enhancements
+
+- **Voice Input**: Web Speech API microphone button with feature detection
+- **Drag-and-Drop**: File drop zone overlay on the chat area
+- **Keyboard Shortcuts**: ⌨️ toolbar button opens shortcuts dialog; `Ctrl+N` for new chat
+- **Toolbar Layout**: Primary actions (attach, cancel, voice, new chat) are always visible; secondary actions (history, export, shortcuts, settings) are in a ⋯ overflow menu to keep the UI clean
+
+### Conversation Management
+
+- **Search**: Client-side filtering in the conversation sidebar
+- **Export**: Download conversation as Markdown
+- **Smart Scroll**: Auto-scroll only when near bottom; "↓ New messages" pill when scrolled up
 
 ### Stream Retry & Message Recovery
 
@@ -426,6 +453,10 @@ flowchart LR
 | `CHAT_CANCEL_STREAM` | streaming | idle | Enable input |
 | `CHAT_STREAM_RETRY` | streaming | streaming | Reset assistant msg content, show retry indicator |
 | `CHAT_RECOVER_MESSAGE` | streaming | error | Remove failed msgs, restore input text, show error |
+| `CHAT_REGENERATE` | idle | idle | Remove last assistant msg, store user text as regenerateText |
+| `CHAT_EDIT_MESSAGE` | idle | idle | Remove target msg + after, store new text as regenerateText |
+| `CHAT_CONSUMED_REGENERATE` | any | (unchanged) | Clear regenerateText after auto-send |
+| `CHAT_STREAM_TOOL_USE` | streaming | streaming | Set activeToolUse on streaming message |
 | `CHAT_CONSUMED_RECOVERED_INPUT` | any | (unchanged) | Clear recoveredInput after input pre-fill |
 | `CHAT_QUEUE_MESSAGE` | any | (unchanged) | Append text to pendingMessages |
 | `CHAT_DEQUEUE_MESSAGE` | any | (unchanged) | Remove message at index from pendingMessages |
@@ -454,7 +485,12 @@ The `ChatService` translates backend SSE events into reducer actions:
 | `mcpApprovalRequest` | `CHAT_MCP_APPROVAL_REQUEST` | Create approval message with `role: 'approval'` |
 | `usage` | `CHAT_STREAM_COMPLETE` | Extract token counts and duration |
 | `done` | No action — exits stream reader | `usage` is the sole trigger for CHAT_STREAM_COMPLETE |
+| `toolUse` | `CHAT_STREAM_TOOL_USE` | `{toolName}` → `{messageId, toolName}` |
 | `error` | `CHAT_ERROR` | Wrap message in `AppError` object |
+
+### Performance Optimizations
+
+The message list uses `useDeferredValue(messages)` to keep the input responsive during rapid streaming updates. The original `messages` array drives scroll behavior and accessibility announcements (immediate), while `deferredMessages` drives the heavy message list rendering (deferred).
 
 ---
 

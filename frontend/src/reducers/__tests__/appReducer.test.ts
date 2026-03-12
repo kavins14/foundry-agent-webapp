@@ -19,6 +19,9 @@ function createInitialState(): AppState {
       error: null,
       streamingMessageId: undefined,
       recoveredInput: undefined,
+      recoveredAttachments: undefined,
+      editSnapshot: undefined,
+      regenerateText: undefined,
       pendingMessages: [],
     },
     ui: {
@@ -922,32 +925,32 @@ describe('appReducer', () => {
 
       const result = appReducer(state, { type: 'CHAT_QUEUE_MESSAGE', text: 'first' });
 
-      expect(result.chat.pendingMessages).toEqual(['first']);
+      expect(result.chat.pendingMessages).toEqual([{ text: 'first', files: undefined }]);
     });
 
     it('appends multiple messages in order', () => {
       const state = createInitialState();
-      state.chat.pendingMessages = ['first'];
+      state.chat.pendingMessages = [{ text: 'first' }];
 
       const result = appReducer(state, { type: 'CHAT_QUEUE_MESSAGE', text: 'second' });
 
-      expect(result.chat.pendingMessages).toEqual(['first', 'second']);
+      expect(result.chat.pendingMessages).toEqual([{ text: 'first' }, { text: 'second', files: undefined }]);
     });
   });
 
   describe('CHAT_DEQUEUE_MESSAGE', () => {
     it('removes message at given index', () => {
       const state = createInitialState();
-      state.chat.pendingMessages = ['a', 'b', 'c'];
+      state.chat.pendingMessages = [{ text: 'a' }, { text: 'b' }, { text: 'c' }];
 
       const result = appReducer(state, { type: 'CHAT_DEQUEUE_MESSAGE', index: 1 });
 
-      expect(result.chat.pendingMessages).toEqual(['a', 'c']);
+      expect(result.chat.pendingMessages).toEqual([{ text: 'a' }, { text: 'c' }]);
     });
 
     it('handles removing last item', () => {
       const state = createInitialState();
-      state.chat.pendingMessages = ['only'];
+      state.chat.pendingMessages = [{ text: 'only' }];
 
       const result = appReducer(state, { type: 'CHAT_DEQUEUE_MESSAGE', index: 0 });
 
@@ -958,7 +961,7 @@ describe('appReducer', () => {
   describe('CHAT_CLEAR_QUEUE', () => {
     it('empties pendingMessages', () => {
       const state = createInitialState();
-      state.chat.pendingMessages = ['a', 'b', 'c'];
+      state.chat.pendingMessages = [{ text: 'a' }, { text: 'b' }, { text: 'c' }];
 
       const result = appReducer(state, { type: 'CHAT_CLEAR_QUEUE' });
 
@@ -969,7 +972,7 @@ describe('appReducer', () => {
   describe('CHAT_CLEAR', () => {
     it('clears pendingMessages', () => {
       const state = createInitialState();
-      state.chat.pendingMessages = ['queued'];
+      state.chat.pendingMessages = [{ text: 'queued' }];
 
       const result = appReducer(state, { type: 'CHAT_CLEAR' });
 
@@ -980,7 +983,7 @@ describe('appReducer', () => {
   describe('CHAT_LOAD_CONVERSATION', () => {
     it('clears pendingMessages when switching conversations', () => {
       const state = createInitialState();
-      state.chat.pendingMessages = ['queued'];
+      state.chat.pendingMessages = [{ text: 'queued' }];
 
       const result = appReducer(state, {
         type: 'CHAT_LOAD_CONVERSATION',
@@ -1190,6 +1193,258 @@ describe('appReducer', () => {
     });
   });
 
+  describe('CHAT_STREAM_TOOL_USE', () => {
+    it('sets activeToolUse on the streaming message', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'assistant-1', role: 'assistant', content: 'Thinking...' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_STREAM_TOOL_USE',
+        messageId: 'assistant-1',
+        toolName: 'file_search',
+      });
+
+      expect(result.chat.messages[0].activeToolUse).toBe('file_search');
+    });
+
+    it('updates activeToolUse when tool changes', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'assistant-1', role: 'assistant', activeToolUse: 'file_search' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_STREAM_TOOL_USE',
+        messageId: 'assistant-1',
+        toolName: 'code_interpreter',
+      });
+
+      expect(result.chat.messages[0].activeToolUse).toBe('code_interpreter');
+    });
+
+    it('returns unchanged state if message not found', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'assistant-1', role: 'assistant' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_STREAM_TOOL_USE',
+        messageId: 'nonexistent',
+        toolName: 'file_search',
+      });
+
+      expect(result).toBe(state);
+    });
+
+    it('does not affect other messages', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'user-1', role: 'user', content: 'Hello' }),
+        createMockMessage({ id: 'assistant-1', role: 'assistant', content: '' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_STREAM_TOOL_USE',
+        messageId: 'assistant-1',
+        toolName: 'file_search',
+      });
+
+      expect(result.chat.messages[0].activeToolUse).toBeUndefined();
+      expect(result.chat.messages[1].activeToolUse).toBe('file_search');
+    });
+  });
+
+  describe('CHAT_STREAM_COMPLETE', () => {
+    it('clears activeToolUse on the completed message', () => {
+      const state = createInitialState();
+      state.chat.streamingMessageId = 'assistant-1';
+      state.chat.messages = [
+        createMockMessage({
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'done',
+          activeToolUse: 'file_search',
+        }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_STREAM_COMPLETE',
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, duration: 500 },
+      });
+
+      expect(result.chat.messages[0].activeToolUse).toBeUndefined();
+    });
+  });
+
+  describe('CHAT_REGENERATE', () => {
+    it('removes last assistant and its preceding user message, stores user text as regenerateText', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'user-1', role: 'user', content: 'What is AI?' }),
+        createMockMessage({ id: 'assistant-1', role: 'assistant', content: 'AI is...' }),
+      ];
+
+      const result = appReducer(state, { type: 'CHAT_REGENERATE' });
+
+      expect(result.chat.messages).toHaveLength(0);
+      expect(result.chat.regenerateText).toBe('What is AI?');
+    });
+
+    it('sets status to idle and enables input', () => {
+      const state = createInitialState();
+      state.chat.status = 'streaming';
+      state.ui.chatInputEnabled = false;
+      state.chat.messages = [
+        createMockMessage({ id: 'user-1', role: 'user', content: 'Hello' }),
+        createMockMessage({ id: 'assistant-1', role: 'assistant', content: 'Hi' }),
+      ];
+
+      const result = appReducer(state, { type: 'CHAT_REGENERATE' });
+
+      expect(result.chat.status).toBe('idle');
+      expect(result.ui.chatInputEnabled).toBe(true);
+      expect(result.chat.streamingMessageId).toBeUndefined();
+      expect(result.chat.messages).toHaveLength(0);
+    });
+
+    it('returns unchanged state if no messages', () => {
+      const state = createInitialState();
+      state.chat.messages = [];
+
+      const result = appReducer(state, { type: 'CHAT_REGENERATE' });
+
+      expect(result).toBe(state);
+    });
+
+    it('returns unchanged state if last message is not assistant', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'user-1', role: 'user', content: 'Hello' }),
+      ];
+
+      const result = appReducer(state, { type: 'CHAT_REGENERATE' });
+
+      expect(result).toBe(state);
+    });
+
+    it('handles multi-turn conversation correctly', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'user-1', role: 'user', content: 'First question' }),
+        createMockMessage({ id: 'assistant-1', role: 'assistant', content: 'First answer' }),
+        createMockMessage({ id: 'user-2', role: 'user', content: 'Follow up' }),
+        createMockMessage({ id: 'assistant-2', role: 'assistant', content: 'Second answer' }),
+      ];
+
+      const result = appReducer(state, { type: 'CHAT_REGENERATE' });
+
+      expect(result.chat.messages).toHaveLength(2);
+      expect(result.chat.messages[0].id).toBe('user-1');
+      expect(result.chat.messages[1].id).toBe('assistant-1');
+      expect(result.chat.regenerateText).toBe('Follow up');
+    });
+  });
+
+  describe('CHAT_EDIT_MESSAGE', () => {
+    it('removes target message and everything after, stores newText as recoveredInput', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'user-1', role: 'user', content: 'Original' }),
+        createMockMessage({ id: 'assistant-1', role: 'assistant', content: 'Response' }),
+        createMockMessage({ id: 'user-2', role: 'user', content: 'Follow up' }),
+        createMockMessage({ id: 'assistant-2', role: 'assistant', content: 'Second response' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_EDIT_MESSAGE',
+        messageId: 'user-2',
+        newText: 'Edited follow up',
+      });
+
+      expect(result.chat.messages).toHaveLength(2);
+      expect(result.chat.messages[0].id).toBe('user-1');
+      expect(result.chat.messages[1].id).toBe('assistant-1');
+      expect(result.chat.recoveredInput).toBe('Edited follow up');
+    });
+
+    it('sets status to idle and enables input', () => {
+      const state = createInitialState();
+      state.chat.status = 'streaming';
+      state.ui.chatInputEnabled = false;
+      state.chat.messages = [
+        createMockMessage({ id: 'user-1', role: 'user', content: 'Hello' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_EDIT_MESSAGE',
+        messageId: 'user-1',
+        newText: 'Edited',
+      });
+
+      expect(result.chat.status).toBe('idle');
+      expect(result.ui.chatInputEnabled).toBe(true);
+      expect(result.chat.streamingMessageId).toBeUndefined();
+    });
+
+    it('returns unchanged state if messageId not found', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'user-1', role: 'user', content: 'Hello' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_EDIT_MESSAGE',
+        messageId: 'nonexistent',
+        newText: 'New text',
+      });
+
+      expect(result).toBe(state);
+    });
+
+    it('removes all messages when editing the first one', () => {
+      const state = createInitialState();
+      state.chat.messages = [
+        createMockMessage({ id: 'user-1', role: 'user', content: 'First' }),
+        createMockMessage({ id: 'assistant-1', role: 'assistant', content: 'Reply' }),
+      ];
+
+      const result = appReducer(state, {
+        type: 'CHAT_EDIT_MESSAGE',
+        messageId: 'user-1',
+        newText: 'Revised first',
+      });
+
+      expect(result.chat.messages).toHaveLength(0);
+      expect(result.chat.recoveredInput).toBe('Revised first');
+    });
+  });
+
+  describe('CHAT_CONSUMED_REGENERATE', () => {
+    it('clears regenerateText', () => {
+      const state = createInitialState();
+      state.chat.regenerateText = 'pending text';
+
+      const result = appReducer(state, { type: 'CHAT_CONSUMED_REGENERATE' });
+
+      expect(result.chat.regenerateText).toBeUndefined();
+    });
+
+    it('does not change other chat state', () => {
+      const state = createInitialState();
+      state.chat.regenerateText = 'pending text';
+      state.chat.status = 'idle';
+      state.chat.messages = [createMockMessage({ id: 'user-1', role: 'user' })];
+
+      const result = appReducer(state, { type: 'CHAT_CONSUMED_REGENERATE' });
+
+      expect(result.chat.status).toBe('idle');
+      expect(result.chat.messages).toHaveLength(1);
+    });
+  });
+
   describe('state shape', () => {
     it('snapshot drifts when state fields are added or removed', () => {
       const getShape = (obj: Record<string, unknown>, prefix = ''): string[] => {
@@ -1212,10 +1467,13 @@ describe('appReducer', () => {
           "auth.user",
           "chat",
           "chat.currentConversationId",
+          "chat.editSnapshot",
           "chat.error",
           "chat.messages",
           "chat.pendingMessages",
+          "chat.recoveredAttachments",
           "chat.recoveredInput",
+          "chat.regenerateText",
           "chat.status",
           "chat.streamingMessageId",
           "conversations",

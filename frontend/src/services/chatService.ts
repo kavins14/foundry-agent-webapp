@@ -411,6 +411,16 @@ export class ChatService {
               }
               break;
 
+            case 'toolUse':
+              if (event.data.toolName) {
+                this.dispatch({
+                  type: 'CHAT_STREAM_TOOL_USE',
+                  messageId,
+                  toolName: event.data.toolName,
+                });
+              }
+              break;
+
             case 'mcpApprovalRequest':
               if (event.data.approvalRequest) {
                 this.dispatch({
@@ -573,6 +583,24 @@ export class ChatService {
       this.currentStreamAbort.abort();
       this.dispatch({ type: 'CHAT_CANCEL_STREAM' });
     }
+  }
+
+  async downloadFile(fileId: string, fileName?: string, containerId?: string): Promise<void> {
+    const token = await this.ensureAuthToken();
+    const params = containerId ? `?containerId=${encodeURIComponent(containerId)}` : '';
+    const response = await fetch(`${this.apiUrl}/files/${encodeURIComponent(fileId)}${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(`File download failed: ${response.status}`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName || fileId;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
   }
 
   /**

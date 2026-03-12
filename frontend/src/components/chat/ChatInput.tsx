@@ -4,9 +4,10 @@ import {
   ImperativeControlPlugin,
   type ImperativeControlPluginRef,
 } from '@fluentui-copilot/react-copilot';
-import { Button, Toast, ToastTitle, Toaster, useId, useToastController, Text, makeStyles, tokens } from '@fluentui/react-components';
-import { Attach24Regular, Settings24Regular, ChatAdd24Regular, Stop24Regular, History24Regular } from '@fluentui/react-icons';
+import { Button, Toast, ToastTitle, Toaster, useId, useToastController, Text, makeStyles, tokens, Menu, MenuTrigger, MenuPopover, MenuList, MenuItem } from '@fluentui/react-components';
+import { Attach24Regular, Stop24Regular, MoreHorizontal24Regular, History24Regular, Settings24Regular, ChatAdd24Regular, ArrowDownload24Regular, Keyboard24Regular } from '@fluentui/react-icons';
 import { FilePreview } from './FilePreview';
+import { VoiceInput } from './VoiceInput';
 import { MessageQueue } from './MessageQueue';
 import { validateFile, validateFileCount } from '../../utils/fileAttachments';
 import styles from './ChatInput.module.css';
@@ -43,13 +44,20 @@ interface ChatInputProps {
   onOpenSettings?: () => void;
   onNewChat?: () => void;
   onToggleSidebar?: () => void;
+  onExportConversation?: () => void;
+  onShowShortcuts?: () => void;
   hasMessages?: boolean;
   isStreaming?: boolean;
   onCancelStream?: () => void;
+  isEditing?: boolean;
+  onCancelEdit?: () => void;
   recoveredInput?: string;
+  recoveredAttachments?: import('../../types/chat').IFileAttachment[];
   onRecoveredInputConsumed?: () => void;
-  pendingMessages?: string[];
+  pendingMessages?: Array<{ text: string; files?: File[] }>;
   onDequeueMessage?: (index: number) => void;
+  droppedFiles?: File[];
+  onDroppedFilesConsumed?: () => void;
 }
 
 const focusInput = (containerRef: React.RefObject<HTMLDivElement | null>) => {
@@ -66,13 +74,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onOpenSettings,
   onNewChat,
   onToggleSidebar,
+  onExportConversation,
+  onShowShortcuts,
   hasMessages = false,
   isStreaming = false,
   onCancelStream,
+  isEditing = false,
+  onCancelEdit,
   recoveredInput,
+  recoveredAttachments,
   onRecoveredInputConsumed,
   pendingMessages = [],
   onDequeueMessage,
+  droppedFiles,
+  onDroppedFilesConsumed,
 }) => {
   const [inputText, setInputText] = useState<string>("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -126,11 +141,70 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (recoveredInput) {
       setInputText(recoveredInput);
       controlRef.current?.setInputText(recoveredInput);
+      // Restore attachments by converting dataURIs back to Files
+      if (recoveredAttachments?.length) {
+        for (const att of recoveredAttachments) {
+          if (att.dataUri) {
+            try {
+              const res = fetch(att.dataUri);
+              res.then(r => r.blob()).then(blob => {
+                const file = new File([blob], att.fileName, { type: blob.type });
+                setSelectedFiles(prev => [...prev, file]);
+              });
+            } catch { /* skip unrecoverable attachments */ }
+          }
+        }
+      }
       onRecoveredInputConsumed?.();
       const timer = setTimeout(() => focusInput(inputContainerRef), 50);
       return () => clearTimeout(timer);
     }
-  }, [recoveredInput, onRecoveredInputConsumed]);
+  }, [recoveredInput, recoveredAttachments, onRecoveredInputConsumed]);
+
+  // Clear input when edit is cancelled
+  const prevEditingRef = useRef(isEditing);
+  useEffect(() => {
+    if (prevEditingRef.current && !isEditing) {
+      setInputText("");
+      controlRef.current?.setInputText("");
+      setSelectedFiles([]);
+    }
+    prevEditingRef.current = isEditing;
+  }, [isEditing]);
+
+  // Accept files from drag-drop via parent
+  useEffect(() => {
+    if (droppedFiles && droppedFiles.length > 0) {
+      const countValidation = validateFileCount(droppedFiles, selectedFiles.length);
+      if (!countValidation.valid) {
+        dispatchToast(
+          <Toast>
+            <ToastTitle>{countValidation.error}</ToastTitle>
+          </Toast>,
+          { intent: 'warning' },
+        );
+      } else {
+        const validFiles: File[] = [];
+        for (const file of droppedFiles) {
+          const validation = validateFile(file);
+          if (validation.valid) {
+            validFiles.push(file);
+          } else {
+            dispatchToast(
+              <Toast>
+                <ToastTitle>{validation.error}</ToastTitle>
+              </Toast>,
+              { intent: 'error' },
+            );
+          }
+        }
+        if (validFiles.length > 0) {
+          setSelectedFiles(prev => [...prev, ...validFiles]);
+        }
+      }
+      onDroppedFilesConsumed?.();
+    }
+  }, [droppedFiles, onDroppedFilesConsumed, selectedFiles.length, dispatchToast]);
 
   const handleSubmit = () => {
     if (inputText && inputText.trim() !== "") {
@@ -257,6 +331,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
+  const handleVoiceTranscript = (transcript: string) => {
+    const newText = inputText ? `${inputText} ${transcript}` : transcript;
+    setInputText(newText);
+    controlRef.current?.setInputText(newText);
+    focusInput(inputContainerRef);
+  };
+
   return (
     <>
       <Toaster toasterId={toasterId} position="top-end" />
@@ -291,33 +372,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         )}
         <div className={styles.buttonRow}>
           <div className={styles.actionButtons}>
-            {onToggleSidebar && (
-              <Button
-                appearance="subtle"
-                icon={<History24Regular />}
-                onClick={onToggleSidebar}
-                disabled={disabled}
-                aria-label="Conversation history"
-              />
-            )}
-            {onOpenSettings && (
-              <Button
-                appearance="subtle"
-                icon={<Settings24Regular />}
-                onClick={onOpenSettings}
-                disabled={disabled}
-                aria-label="Settings"
-              />
-            )}
-            {onNewChat && (
-              <Button
-                appearance="subtle"
-                icon={<ChatAdd24Regular />}
-                onClick={onNewChat}
-                disabled={disabled || !hasMessages}
-                aria-label="New chat"
-              />
-            )}
             <Button
               appearance="subtle"
               icon={<Attach24Regular />}
@@ -328,11 +382,58 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <Button
               appearance="subtle"
               icon={<Stop24Regular />}
-              onClick={handleCancelStream}
-              disabled={!isStreaming}
-              aria-label="Cancel response"
+              onClick={isEditing ? onCancelEdit : handleCancelStream}
+              disabled={!isStreaming && !isEditing}
+              aria-label={isEditing ? "Cancel edit" : "Cancel response"}
+              title={isEditing ? "Cancel edit" : undefined}
               className={styles.cancelButton}
             />
+            <VoiceInput
+              onTranscript={handleVoiceTranscript}
+              disabled={disabled}
+            />
+            {onNewChat && (
+              <Button
+                appearance="subtle"
+                icon={<ChatAdd24Regular />}
+                onClick={onNewChat}
+                disabled={disabled || !hasMessages}
+                aria-label="New chat"
+              />
+            )}
+            <Menu>
+              <MenuTrigger disableButtonEnhancement>
+                <Button
+                  appearance="subtle"
+                  icon={<MoreHorizontal24Regular />}
+                  aria-label="More options"
+                />
+              </MenuTrigger>
+              <MenuPopover>
+                <MenuList>
+                  {onToggleSidebar && (
+                    <MenuItem icon={<History24Regular />} onClick={onToggleSidebar} disabled={disabled}>
+                      Conversation history
+                    </MenuItem>
+                  )}
+                  {onExportConversation && (
+                    <MenuItem icon={<ArrowDownload24Regular />} onClick={onExportConversation} disabled={disabled || !hasMessages}>
+                      Export as Markdown
+                    </MenuItem>
+                  )}
+                  {onShowShortcuts && (
+                    <MenuItem icon={<Keyboard24Regular />} onClick={onShowShortcuts}>
+                      Keyboard shortcuts
+                    </MenuItem>
+                  )}
+                  {onOpenSettings && (
+                    <MenuItem icon={<Settings24Regular />} onClick={onOpenSettings} disabled={disabled}>
+                      Settings
+                    </MenuItem>
+                  )}
+                </MenuList>
+              </MenuPopover>
+            </Menu>
           </div>
         </div>
       </div>
@@ -343,6 +444,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         style={{ display: 'none' }}
         onChange={handleFileSelect}
         accept="image/*,.pdf,.txt,.md,.csv,.json,.html,.xml"
+        aria-label="Upload files"
       />
     </div>
     </>

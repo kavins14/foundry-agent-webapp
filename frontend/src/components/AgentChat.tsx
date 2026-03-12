@@ -6,6 +6,8 @@ import { useAppState } from '../hooks/useAppState';
 import { useAuth } from '../hooks/useAuth';
 import { ChatService } from '../services/chatService';
 import { useAppContext } from '../contexts/AppContext';
+import { exportAsMarkdown, downloadMarkdown } from '../utils/exportConversation';
+import { trackFeedback } from '../services/telemetry';
 import type { IChatItem } from '../types/chat';
 import styles from './AgentChat.module.css';
 
@@ -32,7 +34,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agentName, agentDescriptio
 
   const handleSendMessage = async (text: string, files?: File[]) => {
     if (chat.status === 'streaming' || chat.status === 'sending') {
-      dispatch({ type: 'CHAT_QUEUE_MESSAGE', text });
+      dispatch({ type: 'CHAT_QUEUE_MESSAGE', text, files });
       return;
     }
     await chatService.sendMessage(text, chat.currentConversationId, files);
@@ -44,9 +46,14 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agentName, agentDescriptio
 
   useEffect(() => {
     if (chat.status === 'idle' && pendingRef.current.length > 0) {
-      const combined = pendingRef.current.join('\n\n');
+      const combinedText = pendingRef.current.map(m => m.text).join('\n\n');
+      const combinedFiles = pendingRef.current.flatMap(m => m.files || []);
       dispatch({ type: 'CHAT_CLEAR_QUEUE' });
-      chatService.sendMessage(combined, chat.currentConversationId);
+      chatService.sendMessage(
+        combinedText,
+        chat.currentConversationId,
+        combinedFiles.length > 0 ? combinedFiles : undefined
+      );
     }
   }, [chat.status, chat.currentConversationId, chatService, dispatch]);
 
@@ -71,6 +78,43 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agentName, agentDescriptio
     dispatch({ type: 'CHAT_CONSUMED_RECOVERED_INPUT' });
   };
 
+  const handleRegenerate = useCallback(() => {
+    chatService.cancelStream();
+    dispatch({ type: 'CHAT_REGENERATE' });
+  }, [chatService, dispatch]);
+
+  const handleEditMessage = useCallback((messageId: string, newText: string) => {
+    dispatch({ type: 'CHAT_EDIT_MESSAGE', messageId, newText });
+  }, [dispatch]);
+
+  const handleFeedback = useCallback((messageId: string, rating: 'positive' | 'negative') => {
+    trackFeedback(messageId, chat.currentConversationId, rating);
+  }, [chat.currentConversationId]);
+
+  const handleCancelEdit = useCallback(() => {
+    dispatch({ type: 'CHAT_CANCEL_EDIT' });
+  }, [dispatch]);
+
+  const handleDownloadFile = useCallback(async (fileId: string, fileName: string, containerId?: string) => {
+    try {
+      await chatService.downloadFile(fileId, fileName, containerId);
+    } catch (err) {
+      dispatch({
+        type: 'CHAT_ERROR',
+        error: { code: 'NETWORK', message: `Failed to download ${fileName}: ${err instanceof Error ? err.message : 'Unknown error'}`, recoverable: true },
+      });
+    }
+  }, [chatService, dispatch]);
+
+  // Auto-send when regenerateText is set (from regenerate or edit actions)
+  useEffect(() => {
+    if (chat.regenerateText?.trim() && chat.status === 'idle') {
+      const text = chat.regenerateText;
+      dispatch({ type: 'CHAT_CONSUMED_REGENERATE' });
+      chatService.sendMessage(text, chat.currentConversationId);
+    }
+  }, [chat.regenerateText, chat.status, chat.currentConversationId, chatService, dispatch]);
+
   const handleMcpApproval = async (
     approvalRequestId: string,
     approved: boolean,
@@ -85,6 +129,11 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agentName, agentDescriptio
       dispatch({ type: 'CHAT_MCP_APPROVAL_RESOLVED', approvalRequestId, resolved: undefined });
     }
   };
+
+  const handleExportConversation = useCallback(() => {
+    const md = exportAsMarkdown(chat.messages, agentName);
+    downloadMarkdown(md);
+  }, [chat.messages, agentName]);
 
   const handleToggleSidebar = useCallback(async () => {
     const willOpen = !state.conversations.sidebarOpen;
@@ -166,6 +215,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agentName, agentDescriptio
           error={chat.error}
           streamingMessageId={chat.streamingMessageId}
           recoveredInput={chat.recoveredInput}
+          recoveredAttachments={chat.recoveredAttachments}
           onSendMessage={handleSendMessage}
           onClearError={handleClearError}
           onRecoveredInputConsumed={handleRecoveredInputConsumed}
@@ -174,6 +224,13 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agentName, agentDescriptio
           onCancelStream={handleCancelStream}
           onMcpApproval={handleMcpApproval}
           onToggleSidebar={handleToggleSidebar}
+          onExportConversation={handleExportConversation}
+          onRegenerate={handleRegenerate}
+          onEditMessage={handleEditMessage}
+          onCancelEdit={handleCancelEdit}
+          isEditing={!!chat.editSnapshot}
+          onFeedback={handleFeedback}
+          onDownloadFile={handleDownloadFile}
           conversationId={chat.currentConversationId}
           pendingMessages={chat.pendingMessages}
           onDequeueMessage={handleDequeueMessage}

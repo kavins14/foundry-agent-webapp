@@ -130,6 +130,7 @@ builder.Services.AddAuthorization(options =>
 
 // Register Foundry Agent Service (v2 Agents API)
 // Uses Azure.AI.Projects SDK which works with v2 Agents API (/agents/ endpoint with human-readable IDs).
+builder.Services.AddHttpClient();
 builder.Services.AddScoped<AgentFrameworkService>();
 
 var app = builder.Build();
@@ -206,6 +207,10 @@ app.MapPost("/api/chat/stream", async (
             {
                 await WriteMcpApprovalRequestEvent(httpContext.Response, chunk.McpApprovalRequest, cancellationToken);
             }
+            else if (chunk.IsToolUse && chunk.ToolName != null)
+            {
+                await WriteToolUseEvent(httpContext.Response, chunk.ToolName, cancellationToken);
+            }
         }
 
         var duration = (DateTime.UtcNow - startTime).TotalMilliseconds;
@@ -266,6 +271,13 @@ static async Task WriteChunkEvent(HttpResponse response, string content, Cancell
     await response.Body.FlushAsync(ct);
 }
 
+static async Task WriteToolUseEvent(HttpResponse response, string toolName, CancellationToken ct)
+{
+    var json = System.Text.Json.JsonSerializer.Serialize(new { type = "toolUse", toolName });
+    await response.WriteAsync($"data: {json}\n\n", ct);
+    await response.Body.FlushAsync(ct);
+}
+
 static async Task WriteAnnotationsEvent(HttpResponse response, List<WebApp.Api.Models.AnnotationInfo> annotations, CancellationToken ct)
 {
     var json = System.Text.Json.JsonSerializer.Serialize(new
@@ -277,6 +289,7 @@ static async Task WriteAnnotationsEvent(HttpResponse response, List<WebApp.Api.M
             label = a.Label,
             url = a.Url,
             fileId = a.FileId,
+            containerId = a.ContainerId,
             textToReplace = a.TextToReplace,
             startIndex = a.StartIndex,
             endIndex = a.EndIndex,
@@ -488,7 +501,69 @@ app.MapDelete("/api/conversations/{conversationId}", async (
 .RequireAuthorization(ScopePolicyName)
 .WithName("DeleteConversation");
 
+// File download endpoint for code interpreter outputs
+app.MapGet("/api/files/{fileId}", async (
+    string fileId,
+    string? containerId,
+    AgentFrameworkService agentService,
+    IHostEnvironment environment,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var (content, fileName) = await agentService.DownloadFileAsync(fileId, containerId, cancellationToken);
+        var contentType = GetMimeType(fileName);
+        return Results.File(content.ToArray(), contentType, fileName);
+    }
+    catch (HttpRequestException httpEx)
+    {
+        var statusCode = (int?)httpEx.StatusCode ?? 502;
+        var errorResponse = ErrorResponseFactory.CreateFromException(httpEx, statusCode, environment.IsDevelopment());
+        return Results.Problem(
+            title: errorResponse.Title,
+            detail: errorResponse.Detail,
+            statusCode: errorResponse.Status,
+            extensions: errorResponse.Extensions
+        );
+    }
+    catch (Exception ex)
+    {
+        var errorResponse = ErrorResponseFactory.CreateFromException(ex, 500, environment.IsDevelopment());
+        return Results.Problem(
+            title: errorResponse.Title,
+            detail: errorResponse.Detail,
+            statusCode: errorResponse.Status,
+            extensions: errorResponse.Extensions
+        );
+    }
+})
+.RequireAuthorization(ScopePolicyName)
+.WithName("DownloadFile");
+
 // Fallback route for SPA - serve index.html for any non-API routes
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+// Helper to determine MIME type from file extension
+static string GetMimeType(string fileName)
+{
+    var ext = Path.GetExtension(fileName).ToLowerInvariant();
+    return ext switch
+    {
+        ".png" => "image/png",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".svg" => "image/svg+xml",
+        ".pdf" => "application/pdf",
+        ".csv" => "text/csv",
+        ".json" => "application/json",
+        ".txt" => "text/plain",
+        ".md" => "text/markdown",
+        ".html" => "text/html",
+        ".py" => "text/x-python",
+        ".js" => "text/javascript",
+        _ => "application/octet-stream",
+    };
+}

@@ -5,16 +5,33 @@ import { DocumentRegular, GlobeRegular, FolderRegular, OpenRegular, ArrowSyncReg
 import { Markdown } from '../core/Markdown';
 import { AgentIcon } from '../core/AgentIcon';
 import { UsageInfo } from './UsageInfo';
+import { MessageActions } from './MessageActions';
 import { useFormatTimestamp } from '../../hooks/useFormatTimestamp';
 import { parseContentWithCitations } from '../../utils/citationParser';
 import type { IChatItem, IAnnotation } from '../../types/chat';
 import styles from './AssistantMessage.module.css';
+
+function getToolUseLabel(toolName: string): string {
+  switch (toolName) {
+    case 'file_search':
+      return 'Searching files\u2026';
+    case 'code_interpreter':
+      return 'Running code\u2026';
+    case 'function_call':
+      return 'Calling tool\u2026';
+    default:
+      return 'Working\u2026';
+  }
+}
 
 interface AssistantMessageProps {
   message: IChatItem;
   agentName?: string;
   agentLogo?: string;
   isStreaming?: boolean;
+  onRegenerate?: () => void;
+  onFeedback?: (messageId: string, rating: 'positive' | 'negative') => void;
+  onDownloadFile?: (fileId: string, fileName: string, containerId?: string) => void;
 }
 
 function AssistantMessageComponent({ 
@@ -22,6 +39,9 @@ function AssistantMessageComponent({
   agentName = 'AI Assistant',
   agentLogo,
   isStreaming = false,
+  onRegenerate,
+  onFeedback,
+  onDownloadFile,
 }: AssistantMessageProps) {
   const formatTimestamp = useFormatTimestamp();
   const timestamp = message.more?.time ? formatTimestamp(new Date(message.more.time)) : '';
@@ -61,6 +81,10 @@ function AssistantMessageComponent({
     return [];
   }, [parsedContent, message.annotations]);
   
+  const handleFeedback = useCallback((rating: 'positive' | 'negative') => {
+    onFeedback?.(message.id, rating);
+  }, [message.id, onFeedback]);
+
   // Handle citation click - scroll to footnote or open URL
   const handleCitationClick = useCallback((index: number, annotation?: IAnnotation) => {
     if (annotation?.type === 'uri_citation' && annotation.url) {
@@ -96,11 +120,14 @@ function AssistantMessageComponent({
       ? `${annotation.label}${count > 1 ? ` (referenced ${count} times)` : ''}\n\n"${annotation.quote.slice(0, 200)}${annotation.quote.length > 200 ? '...' : ''}"`
       : `${annotation.label}${count > 1 ? ` (referenced ${count} times)` : ''}`;
 
-    const isClickable = annotation.type === 'uri_citation' && annotation.url;
+    const hasFileDownload = (annotation.type === 'file_path' || annotation.type === 'container_file_citation') && annotation.fileId;
+    const isClickable = (annotation.type === 'uri_citation' && annotation.url) || hasFileDownload;
 
     const handleClick = () => {
-      if (isClickable) {
+      if (annotation.type === 'uri_citation' && annotation.url) {
         window.open(annotation.url, '_blank', 'noopener,noreferrer');
+      } else if (hasFileDownload && annotation.fileId) {
+        onDownloadFile?.(annotation.fileId, annotation.label, annotation.containerId);
       }
     };
 
@@ -124,7 +151,8 @@ function AssistantMessageComponent({
           className={`${styles.citation} ${isClickable ? styles.citationClickable : ''}`}
           onClick={isClickable ? handleClick : undefined}
           onKeyDown={isClickable ? handleKeyDown : undefined}
-          role={isClickable ? 'link' : undefined}
+          role={isClickable ? 'button' : undefined}
+          aria-label={isClickable ? (hasFileDownload ? `Download ${annotation.label}` : `Open ${annotation.label}`) : undefined}
           tabIndex={isClickable ? 0 : undefined}
         >
           <span className={styles.citationNumber}>{citationNumber}</span>
@@ -159,11 +187,20 @@ function AssistantMessageComponent({
             </div>
           )}
           <div className={styles.metadataRow}>
-            {timestamp && <span className={styles.timestamp}>{timestamp}</span>}
-            {message.more?.usage && (
-              <UsageInfo 
-                info={message.more.usage} 
-                duration={message.duration} 
+            <div className={styles.metadataLeft}>
+              {timestamp && <span className={styles.timestamp}>{timestamp}</span>}
+              {message.more?.usage && (
+                <UsageInfo 
+                  info={message.more.usage} 
+                  duration={message.duration} 
+                />
+              )}
+            </div>
+            {!isStreaming && message.content && onRegenerate && (
+              <MessageActions
+                content={message.content}
+                onRegenerate={onRegenerate}
+                onFeedback={handleFeedback}
               />
             )}
           </div>
@@ -171,11 +208,18 @@ function AssistantMessageComponent({
       }
     >
       {showLoadingDots ? (
-        <div className={styles.loadingDots}>
-          <span></span>
-          <span></span>
-          <span></span>
-        </div>
+        isStreaming && message.activeToolUse ? (
+          <div className={styles.toolUseIndicator}>
+            <Spinner size="tiny" />
+            <Text size={200}>{getToolUseLabel(message.activeToolUse)}</Text>
+          </div>
+        ) : (
+          <div className={styles.loadingDots} role="status" aria-label="Assistant is thinking">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        )
       ) : isRetrying ? (
         <div className={styles.retryingState}>
           <ArrowSyncRegular className={styles.retryingIcon} />
@@ -184,13 +228,22 @@ function AssistantMessageComponent({
           </Text>
         </div>
       ) : (
-        <Suspense fallback={<Spinner size="small" />}>
-          <Markdown 
-            content={message.content} 
-            annotations={message.annotations}
-            onCitationClick={handleCitationClick}
-          />
-        </Suspense>
+        <>
+          <Suspense fallback={<Spinner size="small" />}>
+            <Markdown 
+              content={message.content} 
+              annotations={message.annotations}
+              onCitationClick={handleCitationClick}
+              onDownloadFile={onDownloadFile}
+            />
+          </Suspense>
+          {isStreaming && message.activeToolUse && (
+            <div className={styles.toolUseIndicator} role="status" aria-label={getToolUseLabel(message.activeToolUse)}>
+              <Spinner size="tiny" />
+              <Text size={200}>{getToolUseLabel(message.activeToolUse)}</Text>
+            </div>
+          )}
+        </>
       )}
     </CopilotMessage>
   );
@@ -204,6 +257,7 @@ export const AssistantMessage = memo(AssistantMessageComponent, (prev, next) => 
     prev.agentLogo === next.agentLogo &&
     prev.message.more?.usage === next.message.more?.usage &&
     prev.message.annotations?.length === next.message.annotations?.length &&
-    prev.message.retryAttempt === next.message.retryAttempt
+    prev.message.retryAttempt === next.message.retryAttempt &&
+    prev.message.activeToolUse === next.message.activeToolUse
   );
 });

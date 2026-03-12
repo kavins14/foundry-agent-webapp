@@ -174,6 +174,17 @@ azd env set AI_AGENT_ID <agent-name>
 
 > 💡 `azd provision` (or `azd up`) automatically regenerates `.env` files and updates RBAC assignments when configuration changes.
 
+## Features
+
+- **AI Chat** — Real-time streaming chat with Azure AI Foundry agents
+- **Message Actions** — Copy, regenerate, edit, and rate responses
+- **Rich Input** — Voice dictation, drag-and-drop files, keyboard shortcuts
+- **Conversation Management** — History sidebar, search, export as Markdown
+- **Resilience** — Auto-retry with recovery, message queueing during streaming
+- **Tool Visualization** — See when the agent searches files, runs code, or calls tools
+
+See [`frontend/README.md`](frontend/README.md) for the full feature list.
+
 ## Development Workflow
 
 ### Option 1: VS Code Tasks (Recommended for AI-assisted development)

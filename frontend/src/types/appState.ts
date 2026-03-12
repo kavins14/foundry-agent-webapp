@@ -1,9 +1,9 @@
 import type { AccountInfo } from '@azure/msal-browser';
-import type { IChatItem, IUsageInfo, IAnnotation, IMcpApprovalRequest } from './chat';
+import type { IChatItem, IUsageInfo, IAnnotation, IMcpApprovalRequest, IFileAttachment } from './chat';
 import type { AppError } from './errors';
 
 // Re-export types for convenience
-export type { IChatItem, IUsageInfo, IAnnotation, IMcpApprovalRequest };
+export type { IChatItem, IUsageInfo, IAnnotation, IMcpApprovalRequest, IFileAttachment };
 
 export interface ConversationSummary {
   id: string;
@@ -36,7 +36,10 @@ export interface AppState {
     error: AppError | null;
     streamingMessageId?: string;
     recoveredInput?: string;
-    pendingMessages: string[]; // queued messages waiting to send after current stream completes
+    recoveredAttachments?: IFileAttachment[];
+    editSnapshot?: IChatItem[]; // messages removed during edit, for undo
+    regenerateText?: string;// auto-resend text for regenerate/edit flows
+    pendingMessages: Array<{ text: string; files?: File[] }>;
   };
 
   // Conversation history state
@@ -68,6 +71,7 @@ export type AppAction =
   | { type: 'CHAT_START_STREAM'; conversationId?: string; messageId: string }
   | { type: 'CHAT_STREAM_CHUNK'; messageId: string; content: string }
   | { type: 'CHAT_STREAM_ANNOTATIONS'; messageId: string; annotations: IAnnotation[] }
+  | { type: 'CHAT_STREAM_TOOL_USE'; messageId: string; toolName: string }
   | { type: 'CHAT_MCP_APPROVAL_REQUEST'; messageId: string; approvalRequest: IMcpApprovalRequest; previousResponseId: string | null }
   | { type: 'CHAT_MCP_APPROVAL_RESOLVED'; approvalRequestId: string; resolved?: 'approved' | 'rejected' }
   | { type: 'CHAT_STREAM_COMPLETE'; usage: IUsageInfo }
@@ -80,9 +84,13 @@ export type AppAction =
   | { type: 'CHAT_STREAM_RETRY'; messageId: string; attempt: number; maxRetries: number }
   | { type: 'CHAT_RECOVER_MESSAGE'; messageText: string; error: AppError; retryCount: number }
   | { type: 'CHAT_CONSUMED_RECOVERED_INPUT' }
-  | { type: 'CHAT_QUEUE_MESSAGE'; text: string }
+  | { type: 'CHAT_QUEUE_MESSAGE'; text: string; files?: File[] }
   | { type: 'CHAT_DEQUEUE_MESSAGE'; index: number }
   | { type: 'CHAT_CLEAR_QUEUE' }
+  | { type: 'CHAT_REGENERATE' }
+  | { type: 'CHAT_EDIT_MESSAGE'; messageId: string; newText: string }
+  | { type: 'CHAT_CANCEL_EDIT' }
+  | { type: 'CHAT_CONSUMED_REGENERATE' }
 
   // Conversation history actions
   | { type: 'CONVERSATIONS_SET_LIST'; conversations: ConversationSummary[]; hasMore: boolean; append?: boolean }
@@ -107,6 +115,9 @@ export const initialAppState: AppState = {
     error: null,
     streamingMessageId: undefined,
     recoveredInput: undefined,
+    recoveredAttachments: undefined,
+    editSnapshot: undefined,
+    regenerateText: undefined,
     pendingMessages: [],
   },
   conversations: {

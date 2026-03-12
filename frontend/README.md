@@ -13,12 +13,37 @@ React 19 single-page application with:
 
 ## Key Features
 
-- **Authentication**: MSAL.js with silent token refresh + popup fallback
-- **Chat Streaming**: SSE-based streaming with cancellation support
-- **File Uploads**: Image attachments with client-side validation
-- **Citations**: Inline citation markers with footnote navigation
-- **Accessibility**: ARIA live regions, keyboard navigation, focus management
-- **State Management**: Centralized Context + useReducer pattern
+### Chat Experience
+- **SSE Streaming** — Real-time token-by-token response streaming with cancellation support
+- **Stream Retry** — Automatic retry (3×) with exponential backoff; failed messages restore to input
+- **Message Queue** — Type-ahead during streaming; queued messages shown as dismissible chips, auto-sent when stream completes
+- **Smart Auto-Scroll** — Auto-scrolls only when near bottom; "↓ New messages" pill when scrolled up
+- **Tool-Use Indicators** — Inline "Searching files...", "Running code..." during agent tool execution
+
+### Message Actions
+- **Copy** — Copy full assistant response to clipboard
+- **Regenerate** — Resend last message for a new response (↻ button)
+- **Edit** — Edit last user message (removes messages, restores text to input with undo)
+- **Feedback** — 👍👎 per-message rating tracked to Application Insights
+
+### Input
+- **File Attachments** — Images and documents via paste (Ctrl+V), drag-and-drop, or file picker
+- **Voice Input** — Web Speech API microphone with feature detection and error feedback
+- **Keyboard Shortcuts** — ⌨️ button shows shortcuts; Ctrl+N new chat, Escape cancel
+- **Toolbar** — Primary actions always visible (attach, cancel, voice, new chat); secondary actions (history, export, shortcuts, settings) in ⋯ overflow menu
+
+### Conversations
+- **History Sidebar** — Browse and resume past conversations; accessed via ⋯ menu
+- **Search** — Filter conversations by title in sidebar
+- **Export** — Download conversation as Markdown; accessed via ⋯ menu
+- **Delete** — Remove conversations from history
+
+### Foundation
+- **Authentication** — MSAL.js with silent token refresh + popup fallback
+- **Accessibility** — ARIA live regions, keyboard navigation, focus management, screen reader announcements
+- **Performance** — React 19 `useDeferredValue` for responsive input during streaming
+- **Theming** — Light/dark/system theme with Fluent UI design tokens
+- **Citations** — Inline citation markers with footnote navigation and source links
 
 ## Project Structure
 

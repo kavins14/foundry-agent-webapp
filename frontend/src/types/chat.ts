@@ -6,6 +6,7 @@ export interface IChatItem {
   attachments?: IFileAttachment[]; // File attachments
   annotations?: IAnnotation[]; // Citations/references from AI agent
   mcpApproval?: IMcpApprovalRequest; // MCP tool approval request
+  activeToolUse?: string; // Currently active tool (e.g. "file_search", "code_interpreter")
   retryAttempt?: number; // Current retry attempt (set during retries)
   maxRetries?: number; // Max retry attempts (set during retries)
   more?: {
@@ -46,6 +47,8 @@ export interface IAnnotation {
   url?: string;
   /** File ID for file citations */
   fileId?: string;
+  /** Container ID for container file citations (code interpreter outputs) */
+  containerId?: string;
   /** Placeholder text in the response to replace (e.g., "【4:0†source】") */
   textToReplace?: string;
   /** Start index in the text where the citation applies */

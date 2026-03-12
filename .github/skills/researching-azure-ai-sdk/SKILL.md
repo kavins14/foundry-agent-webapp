@@ -243,9 +243,20 @@ The SDK provides several annotation types for citations (from `OpenAI.Responses`
 | URI Citation | `UriCitationMessageAnnotation` | Bing, Azure AI Search, SharePoint | `Uri`, `Title`, `StartIndex`, `EndIndex` |
 | File Citation | `FileCitationMessageAnnotation` | File search (vector stores) | `FileId`, `Filename`, `Index` |
 | File Path | `FilePathMessageAnnotation` | Code interpreter output | `FileId`, `Index` |
-| Container Citation | `ContainerFileCitationMessageAnnotation` | Container file citations | `FileId`, `Filename`, `StartIndex`, `EndIndex` |
+| Container Citation | `ContainerFileCitationMessageAnnotation` | Container file citations | `FileId`, `Filename`, `ContainerId`, `StartIndex`, `EndIndex` |
 
 **Note**: `FileCitationMessageAnnotation` uses `Index` (not `StartIndex`/`EndIndex`) per the SDK. See `ExtractAnnotations()` in `AgentFrameworkService.cs` for mapping to `AnnotationInfo`.
+
+### Container File Download
+
+The C# SDK does not yet have a typed client for container file downloads. Use the REST API directly with a bearer token scoped to `https://ai.azure.com/.default`:
+
+```
+GET {projectEndpoint}/openai/v1/containers/{containerId}/files/{fileId}/content
+Authorization: Bearer {token}
+```
+
+For standard (non-container) files (`cfile_` prefix absent), use `OpenAI.Files.FileClient` instead. The backend endpoint `GET /api/files/{fileId}?containerId={id}` abstracts this: it routes `cfile_`-prefixed files through the REST API and standard files through `FileClient`.
 
 ## Streaming Response Types (from OpenAI.Responses namespace)
 

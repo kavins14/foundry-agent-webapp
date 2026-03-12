@@ -1,9 +1,14 @@
 import { Button, Text } from '@fluentui/react-components';
-import { DismissRegular } from '@fluentui/react-icons';
+import { DismissRegular, Attach24Regular } from '@fluentui/react-icons';
 import styles from './MessageQueue.module.css';
 
+interface QueuedMessage {
+  text: string;
+  files?: File[];
+}
+
 interface MessageQueueProps {
-  messages: string[];
+  messages: QueuedMessage[];
   onRemove: (index: number) => void;
 }
 
@@ -13,9 +18,10 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({ messages, onRemove }
   return (
     <div className={styles.queue} role="list" aria-label="Queued messages">
       <span className={styles.label}>Queued:</span>
-      {messages.map((text, i) => (
+      {messages.map((msg, i) => (
         <span key={i} role="listitem" className={styles.chip}>
-          <Text size={200}>{text.length > 60 ? text.slice(0, 60) + '…' : text}</Text>
+          {msg.files && msg.files.length > 0 && <Attach24Regular style={{ fontSize: 12 }} />}
+          <Text size={200}>{msg.text.length > 60 ? msg.text.slice(0, 60) + '…' : msg.text}</Text>
           <Button
             appearance="transparent"
             icon={<DismissRegular />}

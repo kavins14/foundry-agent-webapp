@@ -8,8 +8,8 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import copy from 'copy-to-clipboard';
 import { Button } from '@fluentui/react-components';
-import { CopyRegular } from '@fluentui/react-icons';
-import { memo, useMemo } from 'react';
+import { CopyRegular, CheckmarkRegular } from '@fluentui/react-icons';
+import { memo, useState, useMemo } from 'react';
 import { CitationMarker } from '../chat/CitationMarker';
 import { parseContentWithCitations } from '../../utils/citationParser';
 import type { IAnnotation } from '../../types/chat';
@@ -21,6 +21,8 @@ interface MarkdownProps {
   annotations?: IAnnotation[];
   /** Callback when a citation marker is clicked */
   onCitationClick?: (index: number, annotation?: IAnnotation) => void;
+  /** Callback to download a file by ID (for sandbox: links) */
+  onDownloadFile?: (fileId: string, fileName: string, containerId?: string) => void;
 }
 
 interface CodeBlockProps
@@ -39,6 +41,7 @@ const Paragraph: Components['p'] = ({ children }) => {
 const CodeBlock = memo<CodeBlockProps>(
   ({ inline, className, children, ...props }) => {
     const match = /language-(\w+)/.exec(className ?? '');
+    const [copied, setCopied] = useState(false);
 
     if (inline || !match) {
       return (
@@ -53,20 +56,25 @@ const CodeBlock = memo<CodeBlockProps>(
       .replace(/\n$/, '')
       .replaceAll('&nbsp;', '');
 
+    const handleCopy = () => {
+      copy(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    };
+
     return (
       <div className={styles.codeBlock}>
         <div className={styles.codeHeader}>
           <span className={styles.codeLanguage}>{language}</span>
           <Button
             appearance="subtle"
-            icon={<CopyRegular />}
+            icon={copied ? <CheckmarkRegular /> : <CopyRegular />}
             size="small"
-            onClick={() => {
-              copy(content);
-            }}
-            className={styles.copyButton}
+            onClick={handleCopy}
+            className={`${styles.copyButton} ${copied ? styles.copyButtonCopied : ''}`}
+            aria-label={copied ? 'Copied' : 'Copy code'}
           >
-            Copy
+            {copied ? 'Copied!' : 'Copy'}
           </Button>
         </div>
         <SyntaxHighlighter
@@ -101,19 +109,80 @@ const CodeBlock = memo<CodeBlockProps>(
 
 CodeBlock.displayName = 'CodeBlock';
 
-// Custom link component with styling
+// Default link component (no download capability)
 const Link: Components['a'] = ({ href, children }) => {
+  if (!href || href.startsWith('sandbox:')) {
+    return <span className={styles.link}>{children}</span>;
+  }
   return (
-    <a 
-      href={href} 
-      className={styles.link}
-      target="_blank" 
-      rel="noopener noreferrer"
-    >
+    <a href={href} className={styles.link} target="_blank" rel="noopener noreferrer">
       {children}
     </a>
   );
 };
+
+// Default image component
+const Image: Components['img'] = ({ src, alt }) => {
+  if (!src || src.startsWith('sandbox:')) {
+    return null;
+  }
+  return <img src={src} alt={alt ?? ''} className={styles.image} />;
+};
+
+/** Find an annotation whose label matches the filename in a sandbox: URL */
+function findAnnotationByFilename(sandboxUrl: string, annotationMap: Map<string, IAnnotation>): IAnnotation | undefined {
+  const filename = sandboxUrl.split('/').pop()?.toLowerCase();
+  return filename ? annotationMap.get(filename) : undefined;
+}
+
+/** Create Link/Image components that trigger file downloads for sandbox: URLs */
+function createDownloadableComponents(
+  annotations?: IAnnotation[],
+  onDownloadFile?: (fileId: string, fileName: string, containerId?: string) => void,
+) {
+  // Pre-compute filename → annotation map for O(1) lookups
+  const annotationMap = new Map<string, IAnnotation>();
+  if (annotations) {
+    for (const a of annotations) {
+      if ((a.type === 'container_file_citation' || a.type === 'file_path') && a.fileId && a.label) {
+        annotationMap.set(a.label.toLowerCase(), a);
+      }
+    }
+  }
+
+  const DownloadLink: Components['a'] = ({ href, children }) => {
+    if (!href || href.startsWith('sandbox:')) {
+      const match = href ? findAnnotationByFilename(href, annotationMap) : undefined;
+      if (match?.fileId && onDownloadFile) {
+        return (
+          <a
+            href="#"
+            className={styles.link}
+            aria-label={`Download ${match.label}`}
+            onClick={(e) => { e.preventDefault(); onDownloadFile(match.fileId!, match.label, match.containerId); }}
+          >
+            {children}
+          </a>
+        );
+      }
+      return <span className={styles.link}>{children}</span>;
+    }
+    return (
+      <a href={href} className={styles.link} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    );
+  };
+
+  const DownloadImage: Components['img'] = ({ src, alt }) => {
+    if (!src || src.startsWith('sandbox:')) {
+      return null;
+    }
+    return <img src={src} alt={alt ?? ''} className={styles.image} />;
+  };
+
+  return { a: DownloadLink, img: DownloadImage };
+}
 
 // Custom list components
 const UnorderedList: Components['ul'] = ({ children }) => {
@@ -171,6 +240,7 @@ const rehypeSanitizeConfig = [
 const baseComponents = {
   code: CodeBlock,
   a: Link,
+  img: Image,
   ul: UnorderedList,
   ol: OrderedList,
   li: ListItem,
@@ -189,16 +259,27 @@ const baseComponents = {
 function ContentWithCitations({ 
   content, 
   annotations,
-  onCitationClick 
+  onCitationClick,
+  onDownloadFile,
 }: { 
   content: string; 
   annotations?: IAnnotation[];
   onCitationClick?: (index: number, annotation?: IAnnotation) => void;
+  onDownloadFile?: (fileId: string, fileName: string, containerId?: string) => void;
 }) {
   const parsed = useMemo(
     () => parseContentWithCitations(content, annotations),
     [content, annotations]
   );
+
+  // Build components with download support for sandbox: URLs
+  const components = useMemo(() => {
+    if (onDownloadFile && annotations?.length) {
+      const downloadable = createDownloadableComponents(annotations, onDownloadFile);
+      return { ...baseComponents, ...downloadable };
+    }
+    return baseComponents;
+  }, [annotations, onDownloadFile]);
 
   // If no citations, render plain markdown
   if (parsed.citations.length === 0) {
@@ -206,7 +287,7 @@ function ContentWithCitations({
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         rehypePlugins={[rehypeSanitizeConfig]}
-        components={{ p: Paragraph, ...baseComponents }}
+        components={{ p: Paragraph, ...components }}
       >
         {content}
       </ReactMarkdown>
@@ -260,20 +341,21 @@ function ContentWithCitations({
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkBreaks]}
       rehypePlugins={[rehypeSanitizeConfig]}
-      components={{ p: TextWithCitations, ...baseComponents }}
+      components={{ p: TextWithCitations, ...components }}
     >
       {parsed.processedText}
     </ReactMarkdown>
   );
 }
 
-export function Markdown({ content, annotations, onCitationClick }: MarkdownProps) {
+export function Markdown({ content, annotations, onCitationClick, onDownloadFile }: MarkdownProps) {
   return (
     <div className={styles.markdown}>
       <ContentWithCitations 
         content={content} 
         annotations={annotations}
         onCitationClick={onCitationClick}
+        onDownloadFile={onDownloadFile}
       />
     </div>
   );
