@@ -50,6 +50,10 @@ var baseEnv = [
     name: 'APPLICATIONINSIGHTS_FRONTEND_CONNECTION_STRING'
     value: appInsightsFrontendConnectionString
   }
+  {
+    name: 'SKIP_AUTH'
+    value: 'true'
+  }
 ]
 
 // User-assigned MI client ID — always needed since RBAC is assigned to this MI
