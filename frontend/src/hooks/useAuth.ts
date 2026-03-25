@@ -33,6 +33,7 @@ export const useAuth = () => {
   const { instance, accounts } = useMsal();
 
   const getAccessToken = useCallback(async (): Promise<string | null> => {
+    if (import.meta.env.VITE_SKIP_AUTH === 'true') return null;
     if (accounts.length === 0) {
       return null;
     }

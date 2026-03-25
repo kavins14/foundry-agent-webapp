@@ -31,6 +31,9 @@ param webImageName string = 'mcr.microsoft.com/k8se/quickstart:latest'  // Place
 @description('Default tags applied by Azure Policy (optional)')
 param defaultTags object = {}
 
+@description('Existing resource group name to deploy into (defaults to rg-<environmentName> if not set)')
+param resourceGroupName string = ''
+
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var appTags = {
@@ -39,9 +42,10 @@ var appTags = {
 }
 
 var tags = union(defaultTags, appTags)
+var rgName = empty(resourceGroupName) ? '${abbrs.resourcesResourceGroups}${environmentName}' : resourceGroupName
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
-  name: '${abbrs.resourcesResourceGroups}${environmentName}'
+  name: rgName
   location: location
   tags: tags
 }

@@ -118,13 +118,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.TokenValidationParameters.RoleClaimType = ClaimTypes.Role;
     }, options => builder.Configuration.Bind("AzureAd", options));
 
+var skipAuth = builder.Configuration["SKIP_AUTH"] == "true";
+
 builder.Services.AddAuthorization(options =>
 {
-    // Use Microsoft.Identity.Web's built-in scope validation
     options.AddPolicy(ScopePolicyName, policy =>
     {
-        policy.RequireAuthenticatedUser();
-        policy.RequireScope(RequiredScope);
+        if (skipAuth)
+        {
+            policy.RequireAssertion(_ => true);
+        }
+        else
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireScope(RequiredScope);
+        }
     });
 });
 

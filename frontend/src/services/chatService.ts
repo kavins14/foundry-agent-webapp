@@ -64,7 +64,8 @@ export class ChatService {
    * @returns Access token string
    * @throws {Error} If token acquisition fails
    */
-  private async ensureAuthToken(): Promise<string> {
+  private async ensureAuthToken(): Promise<string | null> {
+    if (import.meta.env.VITE_SKIP_AUTH === 'true') return null;
     const token = await this.getAccessToken();
     if (!token) {
       throw createAppError(new Error('Failed to acquire access token'), 'AUTH');
@@ -156,16 +157,15 @@ export class ChatService {
    */
   private async initiateStream(
     url: string,
-    token: string,
+    token: string | null,
     body: Record<string, unknown>,
     signal: AbortSignal
   ): Promise<Response> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
       body: JSON.stringify(body),
       signal,
     });
@@ -201,7 +201,7 @@ export class ChatService {
       this.dispatch({ type: 'CHAT_CANCEL_STREAM' });
     }
 
-    let token: string;
+    let token: string | null;
     try {
       token = await this.ensureAuthToken();
     } catch (error) {
@@ -588,9 +588,9 @@ export class ChatService {
   async downloadFile(fileId: string, fileName?: string, containerId?: string): Promise<void> {
     const token = await this.ensureAuthToken();
     const params = containerId ? `?containerId=${encodeURIComponent(containerId)}` : '';
-    const response = await fetch(`${this.apiUrl}/files/${encodeURIComponent(fileId)}${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const response = await fetch(`${this.apiUrl}/files/${encodeURIComponent(fileId)}${params}`, { headers });
     if (!response.ok) throw new Error(`File download failed: ${response.status}`);
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
@@ -609,11 +609,9 @@ export class ChatService {
    */
   async listConversations(limit: number = 20): Promise<{ conversations: ConversationSummary[]; hasMore: boolean }> {
     const token = await this.ensureAuthToken();
-    const response = await fetch(`${this.apiUrl}/conversations?limit=${limit}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const response = await fetch(`${this.apiUrl}/conversations?limit=${limit}`, { headers });
 
     if (!response.ok) {
       throw createAppError(new Error(`Failed to list conversations: ${response.status}`), 'API');
@@ -629,11 +627,9 @@ export class ChatService {
    */
   async getConversationMessages(conversationId: string): Promise<ConversationMessageInfo[]> {
     const token = await this.ensureAuthToken();
-    const response = await fetch(`${this.apiUrl}/conversations/${conversationId}/messages`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const response = await fetch(`${this.apiUrl}/conversations/${conversationId}/messages`, { headers });
 
     if (!response.ok) {
       throw createAppError(new Error(`Failed to get conversation messages: ${response.status}`), 'API');
@@ -648,11 +644,11 @@ export class ChatService {
    */
   async deleteConversation(conversationId: string): Promise<void> {
     const token = await this.ensureAuthToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const response = await fetch(`${this.apiUrl}/conversations/${conversationId}`, {
       method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
     });
 
     if (!response.ok) {

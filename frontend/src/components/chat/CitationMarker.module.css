@@ -33,6 +33,17 @@
   transform: scale(0.95);
 }
 
+/* Anchor variant — inherits badge sizing from the <sup> parent */
+.citationLink {
+  display: contents;
+  color: inherit;
+  text-decoration: none;
+}
+
+.citationLink:hover {
+  text-decoration: underline;
+}
+
 /* Highlight animation when scrolled to */
 .highlight {
   animation: highlightPulse 2s ease-out;

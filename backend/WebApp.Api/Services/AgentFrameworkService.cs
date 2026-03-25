@@ -9,7 +9,6 @@ using Microsoft.Identity.Client;
 using Microsoft.Identity.Web;
 using System.Runtime.CompilerServices;
 using WebApp.Api.Models;
-
 namespace WebApp.Api.Services;
 
 #pragma warning disable OPENAI001
@@ -88,25 +87,12 @@ public class AgentFrameworkService : IDisposable
                   && !string.IsNullOrEmpty(_tenantId)
                   && environment != "Development";
 
-        // Create credential for non-OBO operations (agent metadata cache, MI-only mode)
-        if (environment == "Development")
-        {
-            _logger.LogInformation("Development: Using ChainedTokenCredential (AzureCli -> AzureDeveloperCli)");
-            _fallbackCredential = new ChainedTokenCredential(
-                new AzureCliCredential(),
-                new AzureDeveloperCliCredential()
-            );
-        }
-        else if (!string.IsNullOrEmpty(_managedIdentityClientId))
-        {
-            _logger.LogInformation("Production: Using user-assigned ManagedIdentityCredential: {MiClientId}", _managedIdentityClientId);
-            _fallbackCredential = new ManagedIdentityCredential(_managedIdentityClientId);
-        }
-        else
-        {
-            _logger.LogInformation("Production: Using ManagedIdentityCredential (system-assigned)");
-            _fallbackCredential = new ManagedIdentityCredential();
-        }
+        _fallbackCredential = string.IsNullOrEmpty(_managedIdentityClientId)
+            ? new DefaultAzureCredential()
+            : new DefaultAzureCredential(new DefaultAzureCredentialOptions
+            {
+                ManagedIdentityClientId = _managedIdentityClientId
+            });
 
         if (_useObo)
         {
@@ -213,11 +199,14 @@ public class AgentFrameworkService : IDisposable
 
             _logger.LogInformation("Loading agent via Agent Framework: {AgentId}", _agentId);
 
-            // Use the same credential path as all other operations (MI or OBO)
-            var client = GetProjectClient();
+            // Always use MI credential for agent loading — this is a management/setup operation,
+            // not a user-delegated one. RBAC roles are assigned to the MI, not to individual users.
+            // In OBO mode, GetProjectClient() would return an OBO credential scoped to the user,
+            // which causes 401 because the user doesn't have RBAC on the AI Foundry resource.
+            var agentLoadClient = new AIProjectClient(new Uri(_agentEndpoint), _fallbackCredential);
 
             // Use Microsoft.Agents.AI.AzureAI extension method - handles v2 Agents API internally
-            s_cachedAgent = await client.GetAIAgentAsync(
+            s_cachedAgent = await agentLoadClient.GetAIAgentAsync(
                 name: _agentId,
                 cancellationToken: cancellationToken);
 
@@ -320,6 +309,8 @@ public class AgentFrameworkService : IDisposable
         var fileSearchQuotes = new Dictionary<string, string>();
         // Track the current response ID for MCP approval resume flow
         string? currentResponseId = null;
+        // Accumulate streamed text so we can slice TextToReplace from StartIndex/EndIndex
+        var accumulatedText = new System.Text.StringBuilder();
 
         await foreach (StreamingResponseUpdate update
             in responsesClient.CreateResponseStreamingAsync(
@@ -336,6 +327,7 @@ public class AgentFrameworkService : IDisposable
 
             if (update is StreamingResponseOutputTextDeltaUpdate deltaUpdate)
             {
+                accumulatedText.Append(deltaUpdate.Delta);
                 yield return StreamChunk.Text(deltaUpdate.Delta);
             }
             else if (update is StreamingResponseOutputItemDoneUpdate itemDoneUpdate)
@@ -381,7 +373,8 @@ public class AgentFrameworkService : IDisposable
                 }
                 
                 // Extract annotations/citations from completed output items
-                var annotations = ExtractAnnotations(itemDoneUpdate.Item, fileSearchQuotes);
+                var annotations = ExtractAnnotations(itemDoneUpdate.Item, accumulatedText.ToString(), fileSearchQuotes);
+                accumulatedText.Clear();
                 if (annotations.Count > 0)
                 {
                     _logger.LogInformation("Extracted {Count} annotations from response", annotations.Count);
@@ -411,8 +404,14 @@ public class AgentFrameworkService : IDisposable
             }
             else if (update is StreamingResponseErrorUpdate errorUpdate)
             {
-                _logger.LogError("Stream error: {Error}", errorUpdate.Message);
-                throw new InvalidOperationException($"Stream error: {errorUpdate.Message}");
+                // Null/empty message can occur for non-fatal SDK signals (e.g. after MCP list-tools).
+                // Only treat it as a hard failure when there is an actual error description.
+                if (!string.IsNullOrWhiteSpace(errorUpdate.Message))
+                {
+                    _logger.LogError("Stream error: {Error}", errorUpdate.Message);
+                    throw new InvalidOperationException($"Stream error: {errorUpdate.Message}");
+                }
+                _logger.LogWarning("Received empty StreamingResponseErrorUpdate — ignoring");
             }
             else
             {
@@ -661,18 +660,19 @@ public class AgentFrameworkService : IDisposable
     /// Extracts annotation information from a completed response item.
     /// </summary>
     private List<AnnotationInfo> ExtractAnnotations(
-        ResponseItem? item, 
+        ResponseItem? item,
+        string? fullText = null,
         Dictionary<string, string>? fileSearchQuotes = null)
     {
         var annotations = new List<AnnotationInfo>();
-        
+
         if (item is not MessageResponseItem messageItem)
             return annotations;
 
         foreach (var content in messageItem.Content)
         {
             if (content.OutputTextAnnotations == null) continue;
-            
+
             foreach (var annotation in content.OutputTextAnnotations)
             {
                 var annotationInfo = annotation switch
@@ -683,9 +683,10 @@ public class AgentFrameworkService : IDisposable
                         Label = uriAnnotation.Title ?? "Source",
                         Url = uriAnnotation.Uri?.ToString(),
                         StartIndex = uriAnnotation.StartIndex,
-                        EndIndex = uriAnnotation.EndIndex
+                        EndIndex = uriAnnotation.EndIndex,
+                        TextToReplace = SliceText(fullText, uriAnnotation.StartIndex, uriAnnotation.EndIndex)
                     },
-                    
+
                     FileCitationMessageAnnotation fileCitation => new AnnotationInfo
                     {
                         Type = "file_citation",
@@ -693,10 +694,10 @@ public class AgentFrameworkService : IDisposable
                         FileId = fileCitation.FileId,
                         StartIndex = fileCitation.Index,
                         EndIndex = fileCitation.Index,
-                        Quote = fileSearchQuotes?.TryGetValue(fileCitation.FileId ?? string.Empty, out var quote) == true 
+                        Quote = fileSearchQuotes?.TryGetValue(fileCitation.FileId ?? string.Empty, out var quote) == true
                             ? quote : null
                     },
-                    
+
                     FilePathMessageAnnotation filePath => new AnnotationInfo
                     {
                         Type = "file_path",
@@ -705,7 +706,7 @@ public class AgentFrameworkService : IDisposable
                         StartIndex = filePath.Index,
                         EndIndex = filePath.Index
                     },
-                    
+
                     ContainerFileCitationMessageAnnotation containerCitation => new AnnotationInfo
                     {
                         Type = "container_file_citation",
@@ -714,19 +715,31 @@ public class AgentFrameworkService : IDisposable
                         ContainerId = containerCitation.ContainerId,
                         StartIndex = containerCitation.StartIndex,
                         EndIndex = containerCitation.EndIndex,
-                        Quote = fileSearchQuotes?.TryGetValue(containerCitation.FileId ?? string.Empty, out var containerQuote) == true 
+                        TextToReplace = SliceText(fullText, containerCitation.StartIndex, containerCitation.EndIndex),
+                        Quote = fileSearchQuotes?.TryGetValue(containerCitation.FileId ?? string.Empty, out var containerQuote) == true
                             ? containerQuote : null
                     },
-                    
+
                     _ => null
                 };
-                
+
                 if (annotationInfo != null)
                     annotations.Add(annotationInfo);
             }
         }
 
         return annotations;
+    }
+
+    /// <summary>
+    /// Extracts a substring from <paramref name="text"/> using the character offsets
+    /// provided by the SDK annotation. Returns null if any argument is invalid.
+    /// </summary>
+    private static string? SliceText(string? text, int? startIndex, int? endIndex)
+    {
+        if (string.IsNullOrEmpty(text) || startIndex is null || endIndex is null) return null;
+        if (startIndex < 0 || endIndex > text.Length || startIndex >= endIndex) return null;
+        return text.Substring(startIndex.Value, endIndex.Value - startIndex.Value);
     }
 
     /// <summary>

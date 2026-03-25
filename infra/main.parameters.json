@@ -25,6 +25,9 @@
     },
     "enableObo": {
       "value": "${ENABLE_OBO=false}"
+    },
+    "resourceGroupName": {
+      "value": "${AZURE_RESOURCE_GROUP_NAME=}"
     }
   }
 }

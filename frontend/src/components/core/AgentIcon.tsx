@@ -1,5 +1,4 @@
 import { Avatar } from '@fluentui/react-components';
-import { Bot24Regular } from '@fluentui/react-icons';
 
 interface AgentIconProps {
   alt?: string;
@@ -7,22 +6,22 @@ interface AgentIconProps {
   logoUrl?: string;
 }
 
-export function AgentIcon({ 
-  alt = "AI Assistant", 
+const LOGO = 'https://www.nureva.com/hubfs/support/help-center-trial-072020/Console%20logo.png';
+
+export function AgentIcon({
+  alt = "AI Assistant",
   size = 'medium',
-  logoUrl
 }: AgentIconProps) {
   const sizeMap: Record<string, number> = {
-    small: 32,
-    medium: 40,
-    large: 48,
+    small: 24,
+    medium: 32,
+    large: 40,
   };
 
   return (
     <Avatar
       aria-label={alt}
-      image={logoUrl ? { src: logoUrl } : undefined}
-      icon={!logoUrl ? <Bot24Regular /> : undefined}
+      image={{ src: LOGO, style: { objectFit: 'contain', width: '100%', height: '100%' } }}
       size={sizeMap[size] as 16 | 20 | 24 | 28 | 32 | 36 | 40 | 48 | 56 | 64 | 72 | 96 | 120 | 128}
       color="brand"
     />

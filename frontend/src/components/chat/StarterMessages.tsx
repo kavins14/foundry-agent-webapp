@@ -20,9 +20,12 @@ interface IStarterMessageProps {
 
 // Default starter prompts when none are configured in Microsoft Foundry
 const defaultStarterPrompts = [
-  "How can you help me?",
-  "What are your capabilities?",
-  "Tell me about yourself",
+  "How do I set up my HDL410 system?",
+  "My audio isn't working — how do I troubleshoot?",
+  "How do I configure camera tracking?",
+  "What's the difference between HDL300 and HDL410?",
+  "How do I update firmware on my Nureva device?",
+  "Help me connect my HDL system to a video conferencing platform",
 ];
 
 export const StarterMessages = ({

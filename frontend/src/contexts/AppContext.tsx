@@ -71,13 +71,18 @@ const reducerWithLogging = (state: AppState, action: AppAction): AppState => {
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(reducerWithLogging, initialAppState);
   const { accounts } = useMsal();
+  const skipAuth = import.meta.env.VITE_SKIP_AUTH === 'true';
 
-  // Initialize auth state from MSAL
+  // Initialize auth state from MSAL (or immediately when auth is skipped)
   useEffect(() => {
+    if (skipAuth) {
+      dispatch({ type: 'AUTH_INITIALIZED', user: {} as import('@azure/msal-browser').AccountInfo });
+      return;
+    }
     if (accounts.length > 0) {
       dispatch({ type: 'AUTH_INITIALIZED', user: accounts[0] });
     }
-  }, [accounts]);
+  }, [accounts, skipAuth]);
 
   // Dev mode: Log when provider mounts and unmounts
   useEffect(() => {

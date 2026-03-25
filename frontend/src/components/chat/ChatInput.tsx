@@ -412,7 +412,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <MenuPopover>
                 <MenuList>
                   {onToggleSidebar && (
-                    <MenuItem icon={<History24Regular />} onClick={onToggleSidebar} disabled={disabled}>
+                    <MenuItem icon={<History24Regular />} onClick={onToggleSidebar} disabled>
                       Conversation history
                     </MenuItem>
                   )}

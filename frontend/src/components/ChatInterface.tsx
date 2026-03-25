@@ -1,4 +1,6 @@
 import { useRef, useEffect, useState, useDeferredValue, useCallback } from "react";
+import { Button, Tooltip } from "@fluentui/react-components";
+import { LayerDiagonalRegular, AppsListRegular } from "@fluentui/react-icons";
 import { AssistantMessage } from "./chat/AssistantMessage";
 import { UserMessage } from "./chat/UserMessage";
 import { McpApprovalCard } from "./chat/McpApprovalCard";
@@ -8,7 +10,8 @@ import { DropZone } from "./chat/DropZone";
 import { Waves } from "./animations/Waves";
 import { ErrorMessage } from "./core/ErrorMessage";
 import { KeyboardShortcuts } from "./core/KeyboardShortcuts";
-import { BuiltWithBadge } from "./core/BuiltWithBadge";
+import { TechStackModal } from "./core/TechStackModal";
+import { FeaturesModal } from "./core/FeaturesModal";
 import type { IChatItem } from "../types/chat";
 import type { AppState } from "../types/appState";
 import type { AppError } from "../types/errors";
@@ -56,6 +59,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = (props) => {
   const [hasNewMessages, setHasNewMessages] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+  const [isTechStackOpen, setIsTechStackOpen] = useState(false);
+  const [isFeaturesOpen, setIsFeaturesOpen] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState<File[] | undefined>();
   const dragCounterRef = useRef(0);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -177,6 +182,26 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = (props) => {
     >
       <DropZone visible={isDragging} />
       <KeyboardShortcuts open={isShortcutsOpen} onOpenChange={setIsShortcutsOpen} />
+      <TechStackModal open={isTechStackOpen} onOpenChange={setIsTechStackOpen} />
+      <FeaturesModal open={isFeaturesOpen} onOpenChange={setIsFeaturesOpen} />
+      <div className={styles.topRightButtons}>
+        <Tooltip content="Features" relationship="label">
+          <Button
+            appearance="subtle"
+            icon={<AppsListRegular />}
+            onClick={() => setIsFeaturesOpen(true)}
+            aria-label="View features"
+          />
+        </Tooltip>
+        <Tooltip content="Tech stack" relationship="label">
+          <Button
+            appearance="subtle"
+            icon={<LayerDiagonalRegular />}
+            onClick={() => setIsTechStackOpen(true)}
+            aria-label="View tech stack"
+          />
+        </Tooltip>
+      </div>
       {/* Live region for announcing streaming status to screen readers */}
       <div 
         role="status" 
@@ -318,7 +343,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = (props) => {
           droppedFiles={droppedFiles}
           onDroppedFilesConsumed={handleDroppedFilesConsumed}
         />
-        <BuiltWithBadge className={styles.builtWithBadge} />
       </div>
     </div>
   );

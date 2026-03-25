@@ -1,6 +1,6 @@
 import { Suspense, memo, useMemo, useCallback } from 'react';
-import { Spinner, Tooltip, Text } from '@fluentui/react-components';
 import { CopilotMessage } from '@fluentui-copilot/react-copilot-chat';
+import { Spinner, Tooltip, Text } from '@fluentui/react-components';
 import { DocumentRegular, GlobeRegular, FolderRegular, OpenRegular, ArrowSyncRegular } from '@fluentui/react-icons';
 import { Markdown } from '../core/Markdown';
 import { AgentIcon } from '../core/AgentIcon';
@@ -178,7 +178,6 @@ function AssistantMessageComponent({
       name={agentName}
       loadingState="none"
       className={styles.copilotMessage}
-      disclaimer={<span>AI-generated content may be incorrect</span>}
       footnote={
         <div className={styles.footnoteContainer}>
           {hasAnnotations && !isStreaming && (

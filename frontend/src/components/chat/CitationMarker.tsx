@@ -35,17 +35,32 @@ function CitationMarkerComponent({
     }
   };
 
+  const isLink = annotation?.type === 'uri_citation' && annotation.url;
+
   return (
     <Tooltip content={tooltipContent} relationship="label" withArrow>
-      <sup
-        className={styles.citationMarker}
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        role="button"
-        tabIndex={0}
-        aria-label={`Citation ${index}: ${tooltipContent}`}
-      >
-        {index}
+      <sup className={styles.citationMarker}>
+        {isLink ? (
+          <a
+            href={annotation!.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.citationLink}
+            aria-label={`Citation ${index}: ${tooltipContent}`}
+          >
+            {index}
+          </a>
+        ) : (
+          <span
+            onClick={handleClick}
+            onKeyDown={handleKeyDown}
+            role="button"
+            tabIndex={0}
+            aria-label={`Citation ${index}: ${tooltipContent}`}
+          >
+            {index}
+          </span>
+        )}
       </sup>
     </Tooltip>
   );

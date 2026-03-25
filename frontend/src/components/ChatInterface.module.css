@@ -1,3 +1,20 @@
+/* Top-right button group */
+.topRightButtons {
+  position: absolute;
+  top: 0.75rem;
+  right: 1rem;
+  z-index: 10;
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.topRightButtons:hover,
+.topRightButtons:focus-within {
+  opacity: 1;
+}
+
 /* Chat container - clean, full width */
 .chatContainer {
   display: flex;

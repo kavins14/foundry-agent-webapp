@@ -299,49 +299,45 @@ function ContentWithCitations({
     parsed.citations.map(c => [c.index, c.annotation])
   );
 
-  // Custom text renderer that handles [N] markers
-  const TextWithCitations: Components['p'] = ({ children }) => {
-    // children can be a string or array of React nodes
-    const processNode = (node: React.ReactNode): React.ReactNode => {
-      if (typeof node !== 'string') {
-        return node;
+  // Processes a single React node, replacing [N] text with CitationMarker
+  const processNode = (node: React.ReactNode): React.ReactNode => {
+    if (typeof node !== 'string') return node;
+    const parts = node.split(/(\[\d+\])/g);
+    return parts.map((part, i) => {
+      const match = part.match(/^\[(\d+)\]$/);
+      if (match) {
+        const idx = parseInt(match[1], 10);
+        const annotation = citationMap.get(idx);
+        return onCitationClick ? (
+          <CitationMarker
+            key={`citation-${idx}-${i}`}
+            index={idx}
+            annotation={annotation}
+            onClick={onCitationClick}
+          />
+        ) : (
+          <sup key={`citation-${idx}-${i}`}>[{idx}]</sup>
+        );
       }
+      return part;
+    });
+  };
 
-      // Split text on citation markers [N]
-      const parts = node.split(/(\[\d+\])/g);
-      
-      return parts.map((part, i) => {
-        const match = part.match(/^\[(\d+)\]$/);
-        if (match) {
-          const idx = parseInt(match[1], 10);
-          const annotation = citationMap.get(idx);
-          return onCitationClick ? (
-            <CitationMarker
-              key={`citation-${idx}-${i}`}
-              index={idx}
-              annotation={annotation}
-              onClick={onCitationClick}
-            />
-          ) : (
-            <sup key={`citation-${idx}-${i}`}>[{idx}]</sup>
-          );
-        }
-        return part;
-      });
-    };
-
-    const processed = Array.isArray(children)
-      ? children.map(processNode)
-      : processNode(children);
-
+  const TextWithCitations: Components['p'] = ({ children }) => {
+    const processed = Array.isArray(children) ? children.map(processNode) : processNode(children);
     return <span className={styles.paragraph}>{processed} </span>;
+  };
+
+  const ListItemWithCitations: Components['li'] = ({ children }) => {
+    const processed = Array.isArray(children) ? children.map(processNode) : processNode(children);
+    return <li className={styles.listItem}>{processed}</li>;
   };
 
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkBreaks]}
       rehypePlugins={[rehypeSanitizeConfig]}
-      components={{ p: TextWithCitations, ...components }}
+      components={{ ...components, p: TextWithCitations, li: ListItemWithCitations }}
     >
       {parsed.processedText}
     </ReactMarkdown>

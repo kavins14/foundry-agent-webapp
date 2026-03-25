@@ -93,7 +93,20 @@ export function parseContentWithCitations(
     processedText = processedText.replaceAll(placeholder, `[${idx}]`);
   });
 
-  // Second pass: Handle any remaining 【...†...】 patterns not in textToReplace
+  // Second pass: Handle (<url>) inline link format
+  // Negative lookbehind (?<!\]) avoids matching markdown link syntax [text](url)
+  processedText = processedText.replace(/(?<!\])\((https?:\/\/[^)\s]+)\)/g, (match, url) => {
+    const matchingAnnotation = annotations.find(a =>
+      a.type === 'uri_citation' && a.url === url
+    );
+    if (matchingAnnotation) {
+      const idx = getOrCreateCitationIndex(matchingAnnotation);
+      return `[${idx}]`;
+    }
+    return match;
+  });
+
+  // Third pass: Handle any remaining 【...†...】 patterns not in textToReplace
   // This catches cases where the annotation doesn't have textToReplace set
   processedText = processedText.replace(CITATION_PATTERNS.assistants, (match, _id, label) => {
     // Try to find matching annotation by label or position
@@ -121,6 +134,9 @@ export function parseContentWithCitations(
     });
     return `[${citationIndex}]`;
   });
+
+  // Cleanup pass: strip surrounding parens from citation markers e.g. ([1]) -> [1]
+  processedText = processedText.replace(/\(\[(\d+)\]\)/g, '[$1]');
 
   // Convert citation map to sorted array
   const citations = Array.from(citationMap.values()).sort((a, b) => a.index - b.index);
